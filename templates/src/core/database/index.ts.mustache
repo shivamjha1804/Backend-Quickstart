@@ -1,0 +1,1 @@
+{{^mongodb}}{{#typescript}}export { connectDB, closeDB } from './connection';{{/typescript}}{{^typescript}}module.exports = require('./connection');{{/typescript}}{{/mongodb}}{{#mongodb}}{{#typescript}}export { connectMongoDB, closeMongoDB, mongoose } from './mongodb';{{/typescript}}{{^typescript}}module.exports = require('./mongodb');{{/typescript}}{{/mongodb}}

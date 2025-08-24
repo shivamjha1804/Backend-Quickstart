@@ -1,0 +1,156 @@
+{{#docker}}version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: {{name}}-app-prod
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      {{#postgresql}}- DB_HOST=postgres{{/postgresql}}
+      {{#mysql}}- DB_HOST=mysql{{/mysql}}
+      {{#redis}}- REDIS_HOST=redis{{/redis}}
+    env_file:
+      - .env.production
+    volumes:
+      - ./logs:/usr/src/app/logs:rw
+      - ./uploads:/usr/src/app/uploads:rw
+    depends_on:
+      {{#postgresql}}- postgres{{/postgresql}}
+      {{#mysql}}- mysql{{/mysql}}
+      {{#redis}}- redis{{/redis}}
+    networks:
+      - {{name}}-network
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  {{#postgresql}}postgres:
+    image: postgres:15-alpine
+    container_name: {{name}}-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    networks:
+      - {{name}}-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3{{/postgresql}}
+
+  {{#redis}}redis:
+    image: redis:7-alpine
+    container_name: {{name}}-redis-prod
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_prod_data:/data
+    networks:
+      - {{name}}-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3{{/redis}}
+
+  nginx:
+    image: nginx:alpine
+    container_name: {{name}}-nginx-prod
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - app
+    networks:
+      - {{name}}-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+  # Monitoring
+  {{#monitoring}}prometheus:
+    image: prom/prometheus:latest
+    container_name: {{name}}-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - {{name}}-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: {{name}}-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - {{name}}-network{{/monitoring}}
+
+volumes:
+  {{#postgresql}}postgres_prod_data:{{/postgresql}}
+  {{#mysql}}mysql_prod_data:{{/mysql}}
+  {{#redis}}redis_prod_data:{{/redis}}
+  {{#monitoring}}prometheus_data:
+  grafana_data:{{/monitoring}}
+
+networks:
+  {{name}}-network:
+    driver: bridge{{/docker}}

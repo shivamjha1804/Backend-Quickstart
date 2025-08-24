@@ -1,0 +1,126 @@
+{
+  "name": "{{name}}",
+  "version": "{{version}}",
+  "description": "{{description}}",
+  "main": "{{#typescript}}dist/server.js{{/typescript}}{{^typescript}}src/server.js{{/typescript}}",
+  "scripts": {
+    "start": "{{#typescript}}node dist/server.js{{/typescript}}{{^typescript}}node src/server.js{{/typescript}}",
+    "dev": "{{#typescript}}nodemon src/server.ts{{/typescript}}{{^typescript}}nodemon src/server.js{{/typescript}}",
+    {{#typescript}}"build": "tsc",
+    "build:watch": "tsc --watch",{{/typescript}}
+    {{#testing}}"test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:unit": "jest --testPathPattern=unit",
+    "test:integration": "jest --testPathPattern=integration",
+    "test:e2e": "jest --testPathPattern=e2e",{{/testing}}
+    "lint": "eslint {{#typescript}}src/**/*.ts{{/typescript}}{{^typescript}}src/**/*.js{{/typescript}}",
+    "lint:fix": "eslint {{#typescript}}src/**/*.ts{{/typescript}}{{^typescript}}src/**/*.js{{/typescript}} --fix",
+    "format": "prettier --write {{#typescript}}src/**/*.ts{{/typescript}}{{^typescript}}src/**/*.js{{/typescript}}",
+    {{^mongodb}}"migrate": "sequelize-cli db:migrate",
+    "migrate:undo": "sequelize-cli db:migrate:undo",
+    "migrate:undo:all": "sequelize-cli db:migrate:undo:all",
+    "seed": "sequelize-cli db:seed:all",
+    "seed:undo": "sequelize-cli db:seed:undo:all",{{/mongodb}}
+    {{#swagger}}"docs:generate": "swagger-jsdoc -d src/docs/swagger.js src/api/**/*.{{#typescript}}ts{{/typescript}}{{^typescript}}js{{/typescript}} -o docs/swagger.json",{{/swagger}}
+    {{#docker}}"docker:build": "docker build -t {{name}} .",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",{{/docker}}
+    "health": "curl http://localhost:3000/health",
+    "logs": "pm2 logs {{name}}",
+    "monitor": "pm2 monit"
+  },
+  "keywords": [
+    "express",
+    "api",
+    "backend",
+    "rest",
+    {{#typescript}}"typescript",{{/typescript}}
+    {{#database}}"{{database}}",{{/database}}
+    {{#authentication}}"jwt",
+    "auth",{{/authentication}}
+    "production-ready"
+  ],
+  "author": "{{author}}",
+  "license": "{{license}}",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=7.0.0"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "helmet": "^7.0.0",
+    "cors": "^2.8.5",
+    "compression": "^1.7.4",
+    "morgan": "^1.10.0",
+    {{#rateLimit}}"express-rate-limit": "^6.8.1",{{/rateLimit}}
+    "express-validator": "^7.0.1",
+    {{^mongodb}}"sequelize": "^6.32.1",
+    {{#postgresql}}"pg": "^8.11.1",{{/postgresql}}{{#mysql}}"mysql2": "^3.6.0",{{/mysql}}{{#sqlite}}"sqlite3": "^5.1.6",{{/sqlite}}
+    "sequelize-cli": "^6.6.1",{{/mongodb}}
+    {{#mongodb}}"mongoose": "^7.5.0",{{/mongodb}}
+    {{#authentication}}"jsonwebtoken": "^9.0.1",
+    "bcryptjs": "^2.4.3",{{/authentication}}
+    {{#redis}}"redis": "^4.6.7",
+    "connect-redis": "^7.1.0",{{/redis}}
+    {{#backgroundJobs}}"bull": "^4.11.3",{{/backgroundJobs}}
+    {{#websockets}}"socket.io": "^4.7.2",{{/websockets}}
+    "winston": "^3.10.0",
+    "winston-daily-rotate-file": "^4.7.1",
+    "dotenv": "^16.3.1",
+    "joi": "^17.9.2",
+    "uuid": "^9.0.0",
+    {{#swagger}}"swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.0",{{/swagger}}
+    "nodemailer": "^6.9.4",
+    "multer": "^1.4.5-lts.1",
+    "express-session": "^1.17.3",
+    {{#mongodb}}"express-mongo-sanitize": "^2.2.0",{{/mongodb}}
+    "xss": "^1.0.14"
+  },
+  "devDependencies": {
+    {{#typescript}}"@types/node": "^20.4.5",
+    "@types/express": "^4.17.17",
+    "@types/cors": "^2.8.13",
+    "@types/compression": "^1.7.2",
+    "@types/morgan": "^1.9.4",
+    "@types/bcryptjs": "^2.4.2",
+    "@types/jsonwebtoken": "^9.0.2",
+    "@types/uuid": "^9.0.2",
+    "@types/multer": "^1.4.7",
+    "@types/nodemailer": "^6.4.8",
+    "@types/express-session": "^1.17.7",
+    "@types/express-mongo-sanitize": "^2.0.0",
+    {{#mongodb}}"@types/mongoose": "^5.11.97",{{/mongodb}}
+    "@typescript-eslint/eslint-plugin": "^6.2.1",
+    "@typescript-eslint/parser": "^6.2.1",
+    "typescript": "^5.1.6",
+    "ts-node": "^10.9.1",
+    "tsconfig-paths": "^4.2.0",{{/typescript}}
+    {{#testing}}"jest": "^29.6.1",
+    "supertest": "^6.3.3",{{/testing}}
+    {{#typescript}}{{#testing}}"@types/jest": "^29.5.3",
+    "@types/supertest": "^2.0.12",
+    "ts-jest": "^29.1.1",{{/testing}}{{/typescript}}
+    "eslint": "^8.45.0",
+    "prettier": "^3.0.0",
+    "nodemon": "^3.0.1",
+    "husky": "^8.0.3",
+    "lint-staged": "^13.2.3",
+    "cross-env": "^7.0.3",
+    "@commitlint/cli": "^17.6.7",
+    "@commitlint/config-conventional": "^17.6.7"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged",
+      "pre-push": "npm test"
+    }
+  },
+  "lint-staged": {
+    "{{#typescript}}*.ts{{/typescript}}{{^typescript}}*.js{{/typescript}}": [
+      "eslint --fix",
+      "prettier --write"
+    ]
+  }
+}

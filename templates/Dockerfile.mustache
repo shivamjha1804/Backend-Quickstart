@@ -1,0 +1,85 @@
+{{#docker}}# Multi-stage build for production optimization
+FROM node:18-alpine AS base
+
+# Install dumb-init for proper signal handling
+RUN apk add --no-cache dumb-init
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# Copy package files
+COPY package*.json ./
+{{#typescript}}COPY tsconfig.json ./{{/typescript}}
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodeuser -u 1001
+
+#########################################
+# Dependencies stage
+#########################################
+FROM base AS deps
+
+# Install all dependencies (including dev dependencies)
+RUN npm ci --omit=dev && npm cache clean --force
+
+#########################################
+# Build stage (only if TypeScript)
+#########################################
+{{#typescript}}FROM base AS build
+
+# Install all dependencies (including dev)
+RUN npm ci
+
+# Copy source code
+COPY src ./src
+
+# Build the application
+RUN npm run build
+
+# Remove dev dependencies
+RUN npm prune --production{{/typescript}}
+
+#########################################
+# Production stage
+#########################################
+FROM base AS production
+
+# Set NODE_ENV to production
+ENV NODE_ENV=production
+
+# Copy production dependencies
+{{#typescript}}COPY --from=build /usr/src/app/node_modules ./node_modules
+COPY --from=build /usr/src/app/dist ./dist{{/typescript}}
+{{^typescript}}COPY --from=deps /usr/src/app/node_modules ./node_modules
+COPY src ./src{{/typescript}}
+
+# Copy other necessary files
+COPY package*.json ./
+{{#typescript}}COPY tsconfig.json ./{{/typescript}}
+
+# Create logs directory
+RUN mkdir -p logs && chown -R nodeuser:nodejs logs
+
+# Create uploads directory
+RUN mkdir -p uploads && chown -R nodeuser:nodejs uploads
+
+# Change ownership of the app directory to the node user
+RUN chown -R nodeuser:nodejs /usr/src/app
+
+# Switch to non-root user
+USER nodeuser
+
+# Expose the port the app runs on
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3000/health || exit 1
+
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["dumb-init", "--"]
+
+# Start the application
+{{#typescript}}CMD ["node", "dist/server.js"]{{/typescript}}
+{{^typescript}}CMD ["node", "src/server.js"]{{/typescript}}{{/docker}}

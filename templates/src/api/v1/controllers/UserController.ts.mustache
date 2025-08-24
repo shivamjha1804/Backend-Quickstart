@@ -1,0 +1,316 @@
+{{#typescript}}import { Request, Response, NextFunction } from 'express';{{/typescript}}{{^typescript}}const { Request, Response, NextFunction } = require('express');{{/typescript}}
+{{#typescript}}import { logger } from '../../../core/utils/logger';{{/typescript}}{{^typescript}}const { logger } = require('../../../core/utils/logger');{{/typescript}}
+
+{{^mongodb}}{{#typescript}}import { User } from '../../../core/database/models/User';
+import { Op } from 'sequelize';{{/typescript}}{{^typescript}}const { User } = require('../../../core/database/models/User');
+const { Op } = require('sequelize');{{/typescript}}{{/mongodb}}
+{{#mongodb}}{{#typescript}}import User from '../../../core/database/models/UserMongo';{{/typescript}}{{^typescript}}const User = require('../../../core/database/models/UserMongo');{{/typescript}}{{/mongodb}}
+
+{{#typescript}}interface AuthenticatedRequest extends Request {
+  user?: any;
+}{{/typescript}}
+
+{{#typescript}}export class UserController {{{/typescript}}{{^typescript}}class UserController {{{/typescript}}
+  /**
+   * Get current user profile
+   */
+  {{#typescript}}async getProfile(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async getProfile(req, res, next) {{{/typescript}}
+    try {
+      const user = this.sanitizeUser(req.user);
+
+      res.status(200).json({
+        success: true,
+        data: user
+      });
+
+    } catch (error) {
+      logger.error('Get profile error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Update current user profile
+   */
+  {{#typescript}}async updateProfile(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async updateProfile(req, res, next) {{{/typescript}}
+    try {
+      const { firstName, lastName, email } = req.body;
+      const userId = req.user.id;
+
+      // Check if email is being changed and if it's already taken
+      if (email && email !== req.user.email) {
+        {{^mongodb}}const existingUser = await User.findOne({ 
+          where: { 
+            email,
+            id: { [Op.ne]: userId }
+          }
+        });{{/mongodb}}
+        {{#mongodb}}const existingUser = await User.findOne({ 
+          email,
+          _id: { $ne: userId }
+        });{{/mongodb}}
+
+        if (existingUser) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              message: 'Email is already in use',
+              statusCode: 400
+            }
+          });
+        }
+      }
+
+      // Update user
+      const updateData = {};
+      if (firstName) updateData.firstName = firstName;
+      if (lastName) updateData.lastName = lastName;
+      if (email) {
+        updateData.email = email;
+        updateData.isEmailVerified = false; // Reset email verification if email changes
+      }
+
+      {{^mongodb}}const updatedUser = await User.findByPk(userId);
+      await updatedUser.update(updateData);{{/mongodb}}
+      {{#mongodb}}const updatedUser = await User.findByIdAndUpdate(
+        userId,
+        updateData,
+        { new: true, runValidators: true }
+      );{{/mongodb}}
+
+      logger.info(`Profile updated for user: ${req.user.email}`);
+
+      res.status(200).json({
+        success: true,
+        data: this.sanitizeUser(updatedUser)
+      });
+
+    } catch (error) {
+      logger.error('Update profile error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get all users (Admin only)
+   */
+  {{#typescript}}async getAllUsers(req: Request, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async getAllUsers(req, res, next) {{{/typescript}}
+    try {
+      const page = parseInt(req.query.page{{#typescript}} as string{{/typescript}}) || 1;
+      const limit = parseInt(req.query.limit{{#typescript}} as string{{/typescript}}) || 10;
+      const search = req.query.search{{#typescript}} as string{{/typescript}} || '';
+
+      const offset = (page - 1) * limit;
+
+      // Build search conditions
+      {{^mongodb}}const whereConditions = {};
+      if (search) {
+        whereConditions[Op.or] = [
+          { firstName: { [Op.iLike]: `%${search}%` } },
+          { lastName: { [Op.iLike]: `%${search}%` } },
+          { email: { [Op.iLike]: `%${search}%` } }
+        ];
+      }
+
+      const { count, rows: users } = await User.findAndCountAll({
+        where: whereConditions,
+        limit,
+        offset,
+        order: [['createdAt', 'DESC']],
+        attributes: { exclude: ['password', 'emailVerificationToken', 'passwordResetToken', 'passwordResetExpiresAt'] }
+      });{{/mongodb}}
+
+      {{#mongodb}}const searchConditions = {};
+      if (search) {
+        searchConditions.$or = [
+          { firstName: { $regex: search, $options: 'i' } },
+          { lastName: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } }
+        ];
+      }
+
+      const [users, count] = await Promise.all([
+        User.find(searchConditions)
+          .limit(limit)
+          .skip(offset)
+          .sort({ createdAt: -1 }),
+        User.countDocuments(searchConditions)
+      ]);{{/mongodb}}
+
+      const totalPages = Math.ceil(count / limit);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          users: users.map(user => this.sanitizeUser(user)),
+          pagination: {
+            currentPage: page,
+            totalPages,
+            totalUsers: count,
+            hasNextPage: page < totalPages,
+            hasPrevPage: page > 1
+          }
+        }
+      });
+
+    } catch (error) {
+      logger.error('Get all users error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get user by ID (Admin only)
+   */
+  {{#typescript}}async getUserById(req: Request, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async getUserById(req, res, next) {{{/typescript}}
+    try {
+      const { id } = req.params;
+
+      {{^mongodb}}const user = await User.findByPk(id, {
+        attributes: { exclude: ['password', 'emailVerificationToken', 'passwordResetToken', 'passwordResetExpiresAt'] }
+      });{{/mongodb}}
+      {{#mongodb}}const user = await User.findById(id);{{/mongodb}}
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          error: {
+            message: 'User not found',
+            statusCode: 404
+          }
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        data: this.sanitizeUser(user)
+      });
+
+    } catch (error) {
+      logger.error('Get user by ID error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Update user by ID (Admin only)
+   */
+  {{#typescript}}async updateUser(req: Request, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async updateUser(req, res, next) {{{/typescript}}
+    try {
+      const { id } = req.params;
+      const { firstName, lastName, email, isActive, role } = req.body;
+
+      {{^mongodb}}const user = await User.findByPk(id);{{/mongodb}}
+      {{#mongodb}}const user = await User.findById(id);{{/mongodb}}
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          error: {
+            message: 'User not found',
+            statusCode: 404
+          }
+        });
+      }
+
+      // Check if email is being changed and if it's already taken
+      if (email && email !== user.email) {
+        {{^mongodb}}const existingUser = await User.findOne({ 
+          where: { 
+            email,
+            id: { [Op.ne]: id }
+          }
+        });{{/mongodb}}
+        {{#mongodb}}const existingUser = await User.findOne({ 
+          email,
+          _id: { $ne: id }
+        });{{/mongodb}}
+
+        if (existingUser) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              message: 'Email is already in use',
+              statusCode: 400
+            }
+          });
+        }
+      }
+
+      // Update user
+      const updateData = {};
+      if (firstName !== undefined) updateData.firstName = firstName;
+      if (lastName !== undefined) updateData.lastName = lastName;
+      if (email !== undefined) updateData.email = email;
+      if (isActive !== undefined) updateData.isActive = isActive;
+      if (role !== undefined) updateData.role = role;
+
+      {{^mongodb}}await user.update(updateData);{{/mongodb}}
+      {{#mongodb}}Object.assign(user, updateData);
+      await user.save();{{/mongodb}}
+
+      logger.info(`User updated by admin: ${user.email}`);
+
+      res.status(200).json({
+        success: true,
+        data: this.sanitizeUser(user)
+      });
+
+    } catch (error) {
+      logger.error('Update user error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Delete user by ID (Admin only)
+   */
+  {{#typescript}}async deleteUser(req: Request, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async deleteUser(req, res, next) {{{/typescript}}
+    try {
+      const { id } = req.params;
+
+      {{^mongodb}}const user = await User.findByPk(id);{{/mongodb}}
+      {{#mongodb}}const user = await User.findById(id);{{/mongodb}}
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          error: {
+            message: 'User not found',
+            statusCode: 404
+          }
+        });
+      }
+
+      {{^mongodb}}await user.destroy();{{/mongodb}}
+      {{#mongodb}}await User.findByIdAndDelete(id);{{/mongodb}}
+
+      logger.info(`User deleted by admin: ${user.email}`);
+
+      res.status(200).json({
+        success: true,
+        message: 'User deleted successfully'
+      });
+
+    } catch (error) {
+      logger.error('Delete user error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Remove sensitive fields from user object
+   */
+  {{#typescript}}private sanitizeUser(user: any): any {{{/typescript}}{{^typescript}}sanitizeUser(user) {{{/typescript}}
+    if (!user) return null;
+    
+    const userObj = user.toJSON ? user.toJSON() : user;
+    delete userObj.password;
+    delete userObj.emailVerificationToken;
+    delete userObj.passwordResetToken;
+    delete userObj.passwordResetExpiresAt;
+    return userObj;
+  }
+}
+
+{{^typescript}}module.exports = { UserController };{{/typescript}}

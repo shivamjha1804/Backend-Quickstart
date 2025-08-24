@@ -1,0 +1,120 @@
+{{#typescript}}interface Config {
+  server: {
+    port: number;
+    host: string;
+    env: string;
+    bodyParserLimit: string;
+  };
+  database: {
+    dialect?: string;
+    host: string;
+    port: number;
+    name: string;
+    username?: string;
+    password?: string;
+    logging: boolean;
+    pool?: {
+      max: number;
+      min: number;
+      acquire: number;
+      idle: number;
+    };
+  };
+  jwt?: {
+    secret: string;
+    refreshSecret: string;
+    expiresIn: string;
+    refreshExpiresIn: string;
+  };
+  security: {
+    bcryptRounds: number;
+    rateLimitWindow: number;
+    rateLimitMax: number;
+  };
+  cors?: {
+    origin: string | string[];
+    credentials: boolean;
+  };
+  email?: {
+    host: string;
+    port: number;
+    secure: boolean;
+    auth: {
+      user: string;
+      pass: string;
+    };
+  };
+  redis?: {
+    host: string;
+    port: number;
+    password?: string;
+  };
+}{{/typescript}}
+
+{{#typescript}}export const config: Config = {{{/typescript}}{{^typescript}}const config = {{{/typescript}}
+  server: {
+    port: parseInt(process.env.PORT || '3000', 10),
+    host: process.env.HOST || '0.0.0.0',
+    env: process.env.NODE_ENV || 'development',
+    bodyParserLimit: process.env.BODY_PARSER_LIMIT || '10mb'
+  },
+  
+  database: {
+    {{^mongodb}}dialect: '{{database}}',{{/mongodb}}
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || 
+      {{#postgresql}}'5432'{{/postgresql}}
+      {{#mysql}}'3306'{{/mysql}}
+      {{#sqlite}}'3000'{{/sqlite}}
+      {{#mongodb}}'27017'{{/mongodb}}, 10),
+    name: process.env.DB_NAME || '{{name}}',
+    {{^mongodb}}username: process.env.DB_USERNAME || 
+      {{#postgresql}}'postgres'{{/postgresql}}
+      {{#mysql}}'root'{{/mysql}}
+      {{#sqlite}}''{{/sqlite}},
+    password: process.env.DB_PASSWORD || '',{{/mongodb}}
+    logging: process.env.NODE_ENV !== 'production',
+    {{^mongodb}}pool: {
+      max: 10,
+      min: 0,
+      acquire: 30000,
+      idle: 10000
+    }{{/mongodb}}
+  },
+
+  {{#authentication}}jwt: {
+    secret: process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production',
+    refreshSecret: process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-change-in-production',
+    expiresIn: process.env.JWT_EXPIRES_IN || '15m',
+    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d'
+  },{{/authentication}}
+
+  security: {
+    bcryptRounds: parseInt(process.env.BCRYPT_ROUNDS || '12', 10),
+    rateLimitWindow: parseInt(process.env.RATE_LIMIT_WINDOW || '900000', 10), // 15 minutes
+    rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || '100', 10)
+  },
+
+  {{#cors}}cors: {
+    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : ['http://localhost:3000', 'http://localhost:3001'],
+    credentials: process.env.CORS_CREDENTIALS === 'true'
+  },{{/cors}}
+
+  {{#email}}email: {
+    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.EMAIL_PORT || '587', 10),
+    secure: process.env.EMAIL_SECURE === 'true',
+    auth: {
+      user: process.env.EMAIL_USER || '',
+      pass: process.env.EMAIL_PASS || ''
+    }
+  },{{/email}}
+
+  {{#redis}}redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379', 10),
+    password: process.env.REDIS_PASSWORD || undefined
+  }{{/redis}}
+};
+
+{{^typescript}}module.exports = { config };{{/typescript}}

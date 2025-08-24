@@ -1,0 +1,408 @@
+{{#authentication}}{{#typescript}}import { Request, Response, NextFunction } from 'express';{{/typescript}}{{^typescript}}const { Request, Response, NextFunction } = require('express');{{/typescript}}
+{{#typescript}}import jwt from 'jsonwebtoken';{{/typescript}}{{^typescript}}const jwt = require('jsonwebtoken');{{/typescript}}
+{{#typescript}}import crypto from 'crypto';{{/typescript}}{{^typescript}}const crypto = require('crypto');{{/typescript}}
+{{#typescript}}import { config } from '../../../config';{{/typescript}}{{^typescript}}const { config } = require('../../../config');{{/typescript}}
+{{#typescript}}import { logger } from '../../../core/utils/logger';{{/typescript}}{{^typescript}}const { logger } = require('../../../core/utils/logger');{{/typescript}}
+
+{{^mongodb}}{{#typescript}}import { User } from '../../../core/database/models/User';
+import { Op } from 'sequelize';{{/typescript}}{{^typescript}}const { User } = require('../../../core/database/models/User');
+const { Op } = require('sequelize');{{/typescript}}{{/mongodb}}
+{{#mongodb}}{{#typescript}}import User from '../../../core/database/models/UserMongo';{{/typescript}}{{^typescript}}const User = require('../../../core/database/models/UserMongo');{{/typescript}}{{/mongodb}}
+
+{{#typescript}}interface AuthenticatedRequest extends Request {
+  user?: any;
+}{{/typescript}}
+
+{{#typescript}}export class AuthController {{{/typescript}}{{^typescript}}class AuthController {{{/typescript}}
+  /**
+   * Register a new user
+   */
+  {{#typescript}}async register(req: Request, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async register(req, res, next) {{{/typescript}}
+    try {
+      const { email, password, firstName, lastName } = req.body;
+
+      // Check if user already exists
+      {{^mongodb}}const existingUser = await User.findOne({ where: { email } });{{/mongodb}}
+      {{#mongodb}}const existingUser = await User.findOne({ email });{{/mongodb}}
+
+      if (existingUser) {
+        return res.status(409).json({
+          success: false,
+          error: {
+            message: 'User with this email already exists',
+            statusCode: 409
+          }
+        });
+      }
+
+      // Create new user
+      const userData = {
+        email,
+        password,
+        firstName,
+        lastName,
+        {{#mongodb}}emailVerificationToken: crypto.randomBytes(32).toString('hex'){{/mongodb}}
+      };
+
+      {{^mongodb}}const user = await User.create(userData);{{/mongodb}}
+      {{#mongodb}}const user = new User(userData);
+      await user.save();{{/mongodb}}
+
+      // Generate tokens
+      const accessToken = this.generateAccessToken(user);
+      const refreshToken = this.generateRefreshToken(user);
+
+      logger.info(`New user registered: ${email}`);
+
+      res.status(201).json({
+        success: true,
+        data: {
+          user: this.sanitizeUser(user),
+          accessToken,
+          refreshToken
+        }
+      });
+
+    } catch (error) {
+      logger.error('Registration error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Login user
+   */
+  {{#typescript}}async login(req: Request, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async login(req, res, next) {{{/typescript}}
+    try {
+      const { email, password } = req.body;
+
+      // Find user with password field
+      {{^mongodb}}const user = await User.findOne({ 
+        where: { email },
+        attributes: { include: ['password'] }
+      });{{/mongodb}}
+      {{#mongodb}}const user = await User.findOne({ email }).select('+password');{{/mongodb}}
+
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          error: {
+            message: 'Invalid email or password',
+            statusCode: 401
+          }
+        });
+      }
+
+      // Check password
+      const isPasswordValid = await user.comparePassword(password);
+
+      if (!isPasswordValid) {
+        return res.status(401).json({
+          success: false,
+          error: {
+            message: 'Invalid email or password',
+            statusCode: 401
+          }
+        });
+      }
+
+      // Check if user is active
+      if (!user.isActive) {
+        return res.status(401).json({
+          success: false,
+          error: {
+            message: 'Account is deactivated',
+            statusCode: 401
+          }
+        });
+      }
+
+      // Update last login
+      {{^mongodb}}await user.update({ lastLoginAt: new Date() });{{/mongodb}}
+      {{#mongodb}}user.lastLoginAt = new Date();
+      await user.save();{{/mongodb}}
+
+      // Generate tokens
+      const accessToken = this.generateAccessToken(user);
+      const refreshToken = this.generateRefreshToken(user);
+
+      logger.info(`User logged in: ${email}`);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          user: this.sanitizeUser(user),
+          accessToken,
+          refreshToken
+        }
+      });
+
+    } catch (error) {
+      logger.error('Login error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Refresh access token
+   */
+  {{#typescript}}async refreshToken(req: Request, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async refreshToken(req, res, next) {{{/typescript}}
+    try {
+      const { refreshToken } = req.body;
+
+      if (!refreshToken) {
+        return res.status(401).json({
+          success: false,
+          error: {
+            message: 'Refresh token is required',
+            statusCode: 401
+          }
+        });
+      }
+
+      // Verify refresh token
+      {{#typescript}}const decoded = jwt.verify(refreshToken, config.jwt.refreshSecret) as any;{{/typescript}}{{^typescript}}const decoded = jwt.verify(refreshToken, config.jwt.refreshSecret);{{/typescript}}
+
+      // Find user
+      {{^mongodb}}const user = await User.findByPk(decoded.id);{{/mongodb}}
+      {{#mongodb}}const user = await User.findById(decoded.id);{{/mongodb}}
+
+      if (!user || !user.isActive) {
+        return res.status(401).json({
+          success: false,
+          error: {
+            message: 'Invalid refresh token',
+            statusCode: 401
+          }
+        });
+      }
+
+      // Generate new access token
+      const accessToken = this.generateAccessToken(user);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          accessToken
+        }
+      });
+
+    } catch (error) {
+      logger.error('Token refresh error:', error);
+      
+      if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+        return res.status(401).json({
+          success: false,
+          error: {
+            message: 'Invalid refresh token',
+            statusCode: 401
+          }
+        });
+      }
+
+      next(error);
+    }
+  }
+
+  /**
+   * Logout user
+   */
+  {{#typescript}}async logout(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async logout(req, res, next) {{{/typescript}}
+    try {
+      // In a real-world scenario, you might want to implement a token blacklist
+      // For now, we'll just send a success response
+      logger.info(`User logged out: ${req.user.email}`);
+
+      res.status(200).json({
+        success: true,
+        message: 'Logged out successfully'
+      });
+
+    } catch (error) {
+      logger.error('Logout error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Verify email address
+   */
+  {{#typescript}}async verifyEmail(req: Request, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async verifyEmail(req, res, next) {{{/typescript}}
+    try {
+      const { token } = req.body;
+
+      {{^mongodb}}const user = await User.findOne({ 
+        where: { emailVerificationToken: token }
+      });{{/mongodb}}
+      {{#mongodb}}const user = await User.findOne({ emailVerificationToken: token });{{/mongodb}}
+
+      if (!user) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            message: 'Invalid or expired verification token',
+            statusCode: 400
+          }
+        });
+      }
+
+      // Update user
+      {{^mongodb}}await user.update({
+        isEmailVerified: true,
+        emailVerificationToken: null
+      });{{/mongodb}}
+      {{#mongodb}}user.isEmailVerified = true;
+      user.emailVerificationToken = undefined;
+      await user.save();{{/mongodb}}
+
+      logger.info(`Email verified for user: ${user.email}`);
+
+      res.status(200).json({
+        success: true,
+        message: 'Email verified successfully'
+      });
+
+    } catch (error) {
+      logger.error('Email verification error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Request password reset
+   */
+  {{#typescript}}async forgotPassword(req: Request, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async forgotPassword(req, res, next) {{{/typescript}}
+    try {
+      const { email } = req.body;
+
+      {{^mongodb}}const user = await User.findOne({ where: { email } });{{/mongodb}}
+      {{#mongodb}}const user = await User.findOne({ email });{{/mongodb}}
+
+      if (!user) {
+        // Don't reveal that user doesn't exist
+        return res.status(200).json({
+          success: true,
+          message: 'If an account with that email exists, we have sent a password reset link.'
+        });
+      }
+
+      // Generate reset token
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      const resetTokenExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      {{^mongodb}}await user.update({
+        passwordResetToken: resetToken,
+        passwordResetExpiresAt: resetTokenExpiry
+      });{{/mongodb}}
+      {{#mongodb}}user.passwordResetToken = resetToken;
+      user.passwordResetExpiresAt = resetTokenExpiry;
+      await user.save();{{/mongodb}}
+
+      // In a real application, you would send an email here
+      logger.info(`Password reset requested for: ${email}`);
+
+      res.status(200).json({
+        success: true,
+        message: 'If an account with that email exists, we have sent a password reset link.'
+      });
+
+    } catch (error) {
+      logger.error('Forgot password error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Reset password
+   */
+  {{#typescript}}async resetPassword(req: Request, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async resetPassword(req, res, next) {{{/typescript}}
+    try {
+      const { token, password } = req.body;
+
+      {{^mongodb}}const user = await User.findOne({
+        where: {
+          passwordResetToken: token,
+          passwordResetExpiresAt: {
+            [Op.gt]: new Date()
+          }
+        }
+      });{{/mongodb}}
+      {{#mongodb}}const user = await User.findOne({
+        passwordResetToken: token,
+        passwordResetExpiresAt: { $gt: new Date() }
+      });{{/mongodb}}
+
+      if (!user) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            message: 'Invalid or expired reset token',
+            statusCode: 400
+          }
+        });
+      }
+
+      // Update password and clear reset token
+      {{^mongodb}}await user.update({
+        password,
+        passwordResetToken: null,
+        passwordResetExpiresAt: null
+      });{{/mongodb}}
+      {{#mongodb}}user.password = password;
+      user.passwordResetToken = undefined;
+      user.passwordResetExpiresAt = undefined;
+      await user.save();{{/mongodb}}
+
+      logger.info(`Password reset completed for user: ${user.email}`);
+
+      res.status(200).json({
+        success: true,
+        message: 'Password reset successfully'
+      });
+
+    } catch (error) {
+      logger.error('Password reset error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Generate access token
+   */
+  {{#typescript}}private generateAccessToken(user: any): string {{{/typescript}}{{^typescript}}generateAccessToken(user) {{{/typescript}}
+    return jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role || 'user'
+      },
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn }
+    );
+  }
+
+  /**
+   * Generate refresh token
+   */
+  {{#typescript}}private generateRefreshToken(user: any): string {{{/typescript}}{{^typescript}}generateRefreshToken(user) {{{/typescript}}
+    return jwt.sign(
+      { id: user.id },
+      config.jwt.refreshSecret,
+      { expiresIn: config.jwt.refreshExpiresIn }
+    );
+  }
+
+  /**
+   * Remove sensitive fields from user object
+   */
+  {{#typescript}}private sanitizeUser(user: any): any {{{/typescript}}{{^typescript}}sanitizeUser(user) {{{/typescript}}
+    const userObj = user.toJSON ? user.toJSON() : user;
+    delete userObj.password;
+    delete userObj.emailVerificationToken;
+    delete userObj.passwordResetToken;
+    delete userObj.passwordResetExpiresAt;
+    return userObj;
+  }
+}
+
+{{^typescript}}module.exports = { AuthController };{{/typescript}}{{/authentication}}

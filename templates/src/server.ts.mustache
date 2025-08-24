@@ -1,0 +1,58 @@
+{{#typescript}}import dotenv from 'dotenv';{{/typescript}}{{^typescript}}const dotenv = require('dotenv');{{/typescript}}
+
+// Load environment variables first
+dotenv.config();
+
+{{#typescript}}import app from './app';{{/typescript}}{{^typescript}}const app = require('./app');{{/typescript}}
+{{#typescript}}import { config } from './config';{{/typescript}}{{^typescript}}const { config } = require('./config');{{/typescript}}
+{{#typescript}}import { logger } from './core/utils/logger';{{/typescript}}{{^typescript}}const { logger } = require('./core/utils/logger');{{/typescript}}
+
+// Import database connection
+{{^mongodb}}{{#typescript}}import { connectDB } from './core/database';{{/typescript}}{{^typescript}}const { connectDB } = require('./core/database');{{/typescript}}{{/mongodb}}
+{{#mongodb}}{{#typescript}}import { connectMongoDB } from './core/database';{{/typescript}}{{^typescript}}const { connectMongoDB } = require('./core/database');{{/typescript}}{{/mongodb}}
+
+{{#typescript}}async function startServer(): Promise<void> {{{/typescript}}{{^typescript}}async function startServer() {{{/typescript}}
+  try {
+    // Connect to database
+    {{^mongodb}}await connectDB();{{/mongodb}}
+    {{#mongodb}}await connectMongoDB();{{/mongodb}}
+    
+    // Start server
+    const server = app.listen(config.server.port, config.server.host, () => {
+      logger.info(`🚀 Server running on ${config.server.host}:${config.server.port}`);
+      logger.info(`📖 API Documentation: http://${config.server.host}:${config.server.port}/api-docs`);
+      logger.info(`🏥 Health Check: http://${config.server.host}:${config.server.port}/health`);
+      logger.info(`🌍 Environment: ${config.server.env}`);
+    });
+
+    // Graceful shutdown
+    const gracefulShutdown = () => {
+      logger.info('Received shutdown signal, shutting down gracefully...');
+      server.close(() => {
+        logger.info('Process terminated');
+        process.exit(0);
+      });
+    };
+
+    process.on('SIGTERM', gracefulShutdown);
+    process.on('SIGINT', gracefulShutdown);
+
+  } catch (error) {
+    logger.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
+
+startServer();

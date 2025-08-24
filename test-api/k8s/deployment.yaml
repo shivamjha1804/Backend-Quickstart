@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-api-app
+  labels:
+    app: test-api
+    component: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: test-api
+      component: api
+  template:
+    metadata:
+      labels:
+        app: test-api
+        component: api
+    spec:
+      containers:
+      - name: test-api-app
+        image: test-api:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DB_HOST
+          value: "test-api-postgres-service"
+        - name: REDIS_HOST
+          value: "test-api-redis-service"
+        envFrom:
+        - secretRef:
+            name: test-api-secrets
+        - configMapRef:
+            name: test-api-config
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: logs
+          mountPath: /usr/src/app/logs
+        - name: uploads
+          mountPath: /usr/src/app/uploads
+      volumes:
+      - name: logs
+        persistentVolumeClaim:
+          claimName: test-api-logs-pvc
+      - name: uploads
+        persistentVolumeClaim:
+          claimName: test-api-uploads-pvc
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-api-service
+  labels:
+    app: test-api
+    component: api
+spec:
+  selector:
+    app: test-api
+    component: api
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+  type: LoadBalancer
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-api-config
+data:
+  API_VERSION: "v1"
+  LOG_LEVEL: "info"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-api-logs-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-api-uploads-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

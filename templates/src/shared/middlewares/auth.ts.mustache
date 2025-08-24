@@ -1,0 +1,177 @@
+{{#authentication}}{{#typescript}}import { Request, Response, NextFunction } from 'express';{{/typescript}}{{^typescript}}const { Request, Response, NextFunction } = require('express');{{/typescript}}
+{{#typescript}}import jwt from 'jsonwebtoken';{{/typescript}}{{^typescript}}const jwt = require('jsonwebtoken');{{/typescript}}
+{{#typescript}}import { config } from '../../config';{{/typescript}}{{^typescript}}const { config } = require('../../config');{{/typescript}}
+{{#typescript}}import { logger } from '../../core/utils/logger';{{/typescript}}{{^typescript}}const { logger } = require('../../core/utils/logger');{{/typescript}}
+
+{{^mongodb}}{{#typescript}}import { User } from '../../core/database/models/User';{{/typescript}}{{^typescript}}const { User } = require('../../core/database/models/User');{{/typescript}}{{/mongodb}}
+{{#mongodb}}{{#typescript}}import User from '../../core/database/models/UserMongo';{{/typescript}}{{^typescript}}const User = require('../../core/database/models/UserMongo');{{/typescript}}{{/mongodb}}
+
+{{#typescript}}interface AuthenticatedRequest extends Request {
+  user?: any;
+}
+
+interface JwtPayload {
+  id: string;
+  email: string;
+  role?: string;
+  iat?: number;
+  exp?: number;
+}{{/typescript}}
+
+/**
+ * Middleware to authenticate JWT tokens
+ */
+{{#typescript}}export const authenticate = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {{{/typescript}}{{^typescript}}const authenticate = async (req, res, next) => {{{/typescript}}
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'Access token is required',
+          statusCode: 401
+        }
+      });
+    }
+
+    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+
+    // Verify the token
+    {{#typescript}}const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;{{/typescript}}{{^typescript}}const decoded = jwt.verify(token, config.jwt.secret);{{/typescript}}
+
+    // Find the user
+    {{^mongodb}}const user = await User.findByPk(decoded.id);{{/mongodb}}
+    {{#mongodb}}const user = await User.findById(decoded.id);{{/mongodb}}
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'User not found',
+          statusCode: 401
+        }
+      });
+    }
+
+    if (!user.isActive) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'Account is deactivated',
+          statusCode: 401
+        }
+      });
+    }
+
+    // Attach user to request object
+    req.user = user;
+    next();
+
+  } catch (error) {
+    logger.error('Authentication error:', error);
+    
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'Invalid token',
+          statusCode: 401
+        }
+      });
+    }
+
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'Token expired',
+          statusCode: 401
+        }
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: {
+        message: 'Authentication failed',
+        statusCode: 500
+      }
+    });
+  }
+};
+
+/**
+ * Middleware to authorize users based on roles
+ */
+{{#typescript}}export const authorize = (roles: string[]) => {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {{{/typescript}}{{^typescript}}const authorize = (roles) => {
+  return (req, res, next) => {{{/typescript}}
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          message: 'Authentication required',
+          statusCode: 401
+        }
+      });
+    }
+
+    const userRole = req.user.role || 'user';
+
+    if (!roles.includes(userRole)) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          message: 'Insufficient permissions',
+          statusCode: 403
+        }
+      });
+    }
+
+    next();
+  };
+};
+
+/**
+ * Optional authentication middleware - doesn't fail if no token
+ */
+{{#typescript}}export const optionalAuth = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {{{/typescript}}{{^typescript}}const optionalAuth = async (req, res, next) => {{{/typescript}}
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return next(); // Continue without user
+    }
+
+    const token = authHeader.substring(7);
+    {{#typescript}}const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;{{/typescript}}{{^typescript}}const decoded = jwt.verify(token, config.jwt.secret);{{/typescript}}
+
+    {{^mongodb}}const user = await User.findByPk(decoded.id);{{/mongodb}}
+    {{#mongodb}}const user = await User.findById(decoded.id);{{/mongodb}}
+
+    if (user && user.isActive) {
+      req.user = user;
+    }
+
+    next();
+
+  } catch (error) {
+    // Continue without user on any error
+    next();
+  }
+};
+
+{{^typescript}}module.exports = {
+  authenticate,
+  authorize,
+  optionalAuth
+};{{/typescript}}{{/authentication}}

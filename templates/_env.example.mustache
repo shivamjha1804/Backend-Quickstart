@@ -1,0 +1,91 @@
+# Server Configuration
+NODE_ENV=development
+PORT=3000
+HOST=0.0.0.0
+BODY_PARSER_LIMIT=10mb
+
+# Database Configuration
+{{#postgresql}}DB_HOST=localhost
+DB_PORT=5432
+DB_NAME={{name}}
+DB_USERNAME=postgres
+DB_PASSWORD=password{{/postgresql}}
+{{#mysql}}DB_HOST=localhost
+DB_PORT=3306
+DB_NAME={{name}}
+DB_USERNAME=root
+DB_PASSWORD=password{{/mysql}}
+{{#sqlite}}DB_PATH=./database.sqlite{{/sqlite}}
+{{#mongodb}}DB_HOST=localhost
+DB_PORT=27017
+DB_NAME={{name}}
+# DB_USERNAME=
+# DB_PASSWORD={{/mongodb}}
+
+{{#authentication}}# JWT Configuration
+JWT_SECRET=your-super-secret-jwt-key-change-in-production-minimum-32-characters-long
+JWT_REFRESH_SECRET=your-refresh-secret-change-in-production-different-from-jwt-secret
+JWT_EXPIRES_IN=15m
+JWT_REFRESH_EXPIRES_IN=7d{{/authentication}}
+
+# Security Configuration
+BCRYPT_ROUNDS=12
+RATE_LIMIT_WINDOW=900000
+RATE_LIMIT_MAX=100
+
+{{#cors}}# CORS Configuration
+CORS_ORIGIN=http://localhost:3000,http://localhost:3001
+CORS_CREDENTIALS=true{{/cors}}
+
+{{#redis}}# Redis Configuration
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD={{/redis}}
+
+{{#email}}# Email Configuration (for password reset, verification, etc.)
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_SECURE=false
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASS=your-app-password{{/email}}
+
+# File Upload Configuration
+MAX_FILE_SIZE=5MB
+UPLOAD_PATH=./uploads
+
+# Logging Configuration
+LOG_LEVEL=info
+LOG_FORMAT=json
+
+# Session Configuration (if using sessions)
+SESSION_SECRET=your-session-secret-change-in-production
+
+# Additional Security Headers
+TRUST_PROXY=false
+
+# Development/Testing
+{{#testing}}TEST_DATABASE_URL=
+DISABLE_LOGGING=false{{/testing}}
+
+# Production-specific (uncomment in production)
+# SSL_KEY_PATH=/path/to/ssl/key
+# SSL_CERT_PATH=/path/to/ssl/cert
+# DATABASE_SSL=true
+# CLUSTER_MODE=false
+
+# Monitoring & Analytics (if using external services)
+# SENTRY_DSN=
+# NEW_RELIC_LICENSE_KEY=
+# DATADOG_API_KEY=
+
+# Cloud Services (if needed)
+# AWS_ACCESS_KEY_ID=
+# AWS_SECRET_ACCESS_KEY=
+# AWS_REGION=us-east-1
+# AWS_S3_BUCKET=
+
+# External API Keys (add as needed)
+# STRIPE_SECRET_KEY=
+# SENDGRID_API_KEY=
+# TWILIO_ACCOUNT_SID=
+# TWILIO_AUTH_TOKEN=

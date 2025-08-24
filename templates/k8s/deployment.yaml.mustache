@@ -1,0 +1,123 @@
+{{#docker}}apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{name}}-app
+  labels:
+    app: {{name}}
+    component: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: {{name}}
+      component: api
+  template:
+    metadata:
+      labels:
+        app: {{name}}
+        component: api
+    spec:
+      containers:
+      - name: {{name}}-app
+        image: {{name}}:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DB_HOST
+          value: "{{name}}-postgres-service"
+        {{#redis}}- name: REDIS_HOST
+          value: "{{name}}-redis-service"{{/redis}}
+        envFrom:
+        - secretRef:
+            name: {{name}}-secrets
+        - configMapRef:
+            name: {{name}}-config
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: logs
+          mountPath: /usr/src/app/logs
+        - name: uploads
+          mountPath: /usr/src/app/uploads
+      volumes:
+      - name: logs
+        persistentVolumeClaim:
+          claimName: {{name}}-logs-pvc
+      - name: uploads
+        persistentVolumeClaim:
+          claimName: {{name}}-uploads-pvc
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{name}}-service
+  labels:
+    app: {{name}}
+    component: api
+spec:
+  selector:
+    app: {{name}}
+    component: api
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+  type: LoadBalancer
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{name}}-config
+data:
+  API_VERSION: "v1"
+  LOG_LEVEL: "info"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{name}}-logs-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{name}}-uploads-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi{{/docker}}

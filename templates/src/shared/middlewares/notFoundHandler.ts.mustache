@@ -1,0 +1,13 @@
+{{#typescript}}import { Request, Response } from 'express';{{/typescript}}{{^typescript}}const { Request, Response } = require('express');{{/typescript}}
+
+{{#typescript}}export const notFoundHandler = (req: Request, res: Response): void => {{{/typescript}}{{^typescript}}const notFoundHandler = (req, res) => {{{/typescript}}
+  res.status(404).json({
+    success: false,
+    error: {
+      message: `Route ${req.originalUrl} not found`,
+      statusCode: 404
+    }
+  });
+};
+
+{{^typescript}}module.exports = { notFoundHandler };{{/typescript}}

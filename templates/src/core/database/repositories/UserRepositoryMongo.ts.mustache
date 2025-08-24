@@ -1,0 +1,130 @@
+{{#mongodb}}{{#typescript}}import { FilterQuery, UpdateQuery, QueryOptions } from 'mongoose';{{/typescript}}{{^typescript}}const mongoose = require('mongoose');{{/typescript}}
+{{#typescript}}import User, { IUser } from '../models/UserMongo';{{/typescript}}{{^typescript}}const User = require('../models/UserMongo');{{/typescript}}
+{{#typescript}}import { logger } from '../../utils/logger';{{/typescript}}{{^typescript}}const { logger } = require('../../utils/logger');{{/typescript}}
+
+{{#typescript}}export class UserRepository {{{/typescript}}{{^typescript}}class UserRepository {{{/typescript}}
+  {{#typescript}}async create(userData: Partial<IUser>): Promise<IUser> {{{/typescript}}{{^typescript}}async create(userData) {{{/typescript}}
+    try {
+      const user = new User(userData);
+      return await user.save();
+    } catch (error) {
+      logger.error('Error creating user:', error);
+      throw error;
+    }
+  }
+
+  {{#typescript}}async findById(id: string): Promise<IUser | null> {{{/typescript}}{{^typescript}}async findById(id) {{{/typescript}}
+    try {
+      return await User.findById(id).select('+password');
+    } catch (error) {
+      logger.error('Error finding user by id:', error);
+      throw error;
+    }
+  }
+
+  {{#typescript}}async findByEmail(email: string): Promise<IUser | null> {{{/typescript}}{{^typescript}}async findByEmail(email) {{{/typescript}}
+    try {
+      return await User.findOne({ email }).select('+password');
+    } catch (error) {
+      logger.error('Error finding user by email:', error);
+      throw error;
+    }
+  }
+
+  {{#typescript}}async findAll(
+    filter: FilterQuery<IUser> = {},
+    options: QueryOptions = {}
+  ): Promise<IUser[]> {{{/typescript}}{{^typescript}}async findAll(filter = {}, options = {}) {{{/typescript}}
+    try {
+      return await User.find(filter, null, options);
+    } catch (error) {
+      logger.error('Error finding users:', error);
+      throw error;
+    }
+  }
+
+  {{#typescript}}async update(id: string, updateData: UpdateQuery<IUser>): Promise<IUser | null> {{{/typescript}}{{^typescript}}async update(id, updateData) {{{/typescript}}
+    try {
+      return await User.findByIdAndUpdate(id, updateData, { 
+        new: true, 
+        runValidators: true 
+      });
+    } catch (error) {
+      logger.error('Error updating user:', error);
+      throw error;
+    }
+  }
+
+  {{#typescript}}async delete(id: string): Promise<boolean> {{{/typescript}}{{^typescript}}async delete(id) {{{/typescript}}
+    try {
+      const result = await User.findByIdAndDelete(id);
+      return !!result;
+    } catch (error) {
+      logger.error('Error deleting user:', error);
+      throw error;
+    }
+  }
+
+  {{#typescript}}async count(filter: FilterQuery<IUser> = {}): Promise<number> {{{/typescript}}{{^typescript}}async count(filter = {}) {{{/typescript}}
+    try {
+      return await User.countDocuments(filter);
+    } catch (error) {
+      logger.error('Error counting users:', error);
+      throw error;
+    }
+  }
+
+  {{#authentication}}{{#typescript}}async findByEmailVerificationToken(token: string): Promise<IUser | null> {{{/typescript}}{{^typescript}}async findByEmailVerificationToken(token) {{{/typescript}}
+    try {
+      return await User.findOne({ emailVerificationToken: token });
+    } catch (error) {
+      logger.error('Error finding user by email verification token:', error);
+      throw error;
+    }
+  }
+
+  {{#typescript}}async findByPasswordResetToken(token: string): Promise<IUser | null> {{{/typescript}}{{^typescript}}async findByPasswordResetToken(token) {{{/typescript}}
+    try {
+      return await User.findOne({ 
+        passwordResetToken: token,
+        passwordResetExpiresAt: { $gt: new Date() }
+      });
+    } catch (error) {
+      logger.error('Error finding user by password reset token:', error);
+      throw error;
+    }
+  }{{/authentication}}
+
+  {{#typescript}}async updateLastLogin(id: string): Promise<IUser | null> {{{/typescript}}{{^typescript}}async updateLastLogin(id) {{{/typescript}}
+    try {
+      return await User.findByIdAndUpdate(
+        id, 
+        { lastLoginAt: new Date() }, 
+        { new: true }
+      );
+    } catch (error) {
+      logger.error('Error updating last login:', error);
+      throw error;
+    }
+  }
+
+  {{#typescript}}async findActiveUsers(): Promise<IUser[]> {{{/typescript}}{{^typescript}}async findActiveUsers() {{{/typescript}}
+    try {
+      return await User.find({ isActive: true });
+    } catch (error) {
+      logger.error('Error finding active users:', error);
+      throw error;
+    }
+  }
+
+  {{#typescript}}async findVerifiedUsers(): Promise<IUser[]> {{{/typescript}}{{^typescript}}async findVerifiedUsers() {{{/typescript}}
+    try {
+      return await User.find({ isEmailVerified: true });
+    } catch (error) {
+      logger.error('Error finding verified users:', error);
+      throw error;
+    }
+  }
+}
+
+{{#typescript}}export default new UserRepository();{{/typescript}}{{^typescript}}module.exports = new UserRepository();{{/typescript}}{{/mongodb}}
