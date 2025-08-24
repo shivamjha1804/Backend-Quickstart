@@ -1,6 +1,19 @@
-{{#mongodb}}{{#typescript}}import mongoose, { Document, Schema } from 'mongoose';{{/typescript}}{{^typescript}}const mongoose = require('mongoose');{{/typescript}}
-{{#authentication}}{{#typescript}}import bcrypt from 'bcryptjs';{{/typescript}}{{^typescript}}const bcrypt = require('bcryptjs');{{/authentication}}{{/typescript}}
-{{#typescript}}import { config } from '../../../config';{{/typescript}}{{^typescript}}const { config } = require('../../../config');{{/typescript}}
+{{#mongodb}}
+{{#typescript}}
+import mongoose, { Document, Schema } from 'mongoose';
+{{#authentication}}
+import bcrypt from 'bcryptjs';
+{{/authentication}}
+import { config } from '../../../config';
+{{/typescript}}
+
+{{^typescript}}
+const mongoose = require('mongoose');
+{{#authentication}}
+const bcrypt = require('bcryptjs');
+{{/authentication}}
+const { config } = require('../../../config');
+{{/typescript}}
 
 {{#typescript}}export interface IUser extends Document {
   email: string;
@@ -114,6 +127,15 @@ UserSchema.virtual('fullName').get(function() {
 // Ensure virtual fields are serialized
 UserSchema.set('toJSON', { virtuals: true });
 
-{{#typescript}}const User = mongoose.model<IUser>('User', UserSchema);{{/typescript}}{{^typescript}}const User = mongoose.model('User', UserSchema);{{/typescript}}
+{{#typescript}}
+const User = mongoose.model<IUser>('User', UserSchema);
 
-{{#typescript}}export default User;{{/typescript}}{{^typescript}}module.exports = User;{{/typescript}}{{/mongodb}}
+export default User;
+{{/typescript}}
+
+{{^typescript}}
+const User = mongoose.model('User', UserSchema);
+
+module.exports = User;
+{{/typescript}}
+{{/mongodb}}

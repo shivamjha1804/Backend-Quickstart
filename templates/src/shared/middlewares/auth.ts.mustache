@@ -1,10 +1,35 @@
-{{#authentication}}{{#typescript}}import { Request, Response, NextFunction } from 'express';{{/typescript}}{{^typescript}}const { Request, Response, NextFunction } = require('express');{{/typescript}}
-{{#typescript}}import jwt from 'jsonwebtoken';{{/typescript}}{{^typescript}}const jwt = require('jsonwebtoken');{{/typescript}}
-{{#typescript}}import { config } from '../../config';{{/typescript}}{{^typescript}}const { config } = require('../../config');{{/typescript}}
-{{#typescript}}import { logger } from '../../core/utils/logger';{{/typescript}}{{^typescript}}const { logger } = require('../../core/utils/logger');{{/typescript}}
+{{#authentication}}
+{{#typescript}}
+import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
+import { config } from '../../config';
+import { logger } from '../../core/utils/logger';
+{{/typescript}}
 
-{{^mongodb}}{{#typescript}}import { User } from '../../core/database/models/User';{{/typescript}}{{^typescript}}const { User } = require('../../core/database/models/User');{{/typescript}}{{/mongodb}}
-{{#mongodb}}{{#typescript}}import User from '../../core/database/models/UserMongo';{{/typescript}}{{^typescript}}const User = require('../../core/database/models/UserMongo');{{/typescript}}{{/mongodb}}
+{{^typescript}}
+const { Request, Response, NextFunction } = require('express');
+const jwt = require('jsonwebtoken');
+const { config } = require('../../config');
+const { logger } = require('../../core/utils/logger');
+{{/typescript}}
+
+{{#typescript}}
+{{^mongodb}}
+import { User } from '../../core/database/models/User';
+{{/mongodb}}
+{{#mongodb}}
+import User from '../../core/database/models/UserMongo';
+{{/mongodb}}
+{{/typescript}}
+
+{{^typescript}}
+{{^mongodb}}
+const { User } = require('../../core/database/models/User');
+{{/mongodb}}
+{{#mongodb}}
+const User = require('../../core/database/models/UserMongo');
+{{/mongodb}}
+{{/typescript}}
 
 {{#typescript}}interface AuthenticatedRequest extends Request {
   user?: any;
@@ -21,51 +46,71 @@ interface JwtPayload {
 /**
  * Middleware to authenticate JWT tokens
  */
-{{#typescript}}export const authenticate = async (
+{{#typescript}}
+export const authenticate = async (
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
-): Promise<void> => {{{/typescript}}{{^typescript}}const authenticate = async (req, res, next) => {{{/typescript}}
+): Promise<void> => {
+{{/typescript}}
+
+{{^typescript}}
+const authenticate = async (req, res, next) => {
+{{/typescript}}
   try {
     const authHeader = req.headers.authorization;
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         error: {
           message: 'Access token is required',
           statusCode: 401
         }
       });
+      return;
     }
 
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
     // Verify the token
-    {{#typescript}}const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;{{/typescript}}{{^typescript}}const decoded = jwt.verify(token, config.jwt.secret);{{/typescript}}
+    {{#authentication}}if (!config.jwt) {
+      res.status(500).json({
+        success: false,
+        error: {
+          message: 'JWT configuration is missing',
+          statusCode: 500
+        }
+      });
+      return;
+    }{{/authentication}}
+    
+    {{#typescript}}const decoded = jwt.verify(token, config.jwt{{#authentication}}!{{/authentication}}.secret) as JwtPayload;{{/typescript}}{{^typescript}}const decoded = jwt.verify(token, config.jwt{{#authentication}}!{{/authentication}}.secret);{{/typescript}}
 
     // Find the user
     {{^mongodb}}const user = await User.findByPk(decoded.id);{{/mongodb}}
     {{#mongodb}}const user = await User.findById(decoded.id);{{/mongodb}}
 
     if (!user) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         error: {
           message: 'User not found',
           statusCode: 401
         }
       });
+      return;
     }
 
     if (!user.isActive) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         error: {
           message: 'Account is deactivated',
           statusCode: 401
         }
       });
+      return;
     }
 
     // Attach user to request object
@@ -76,7 +121,7 @@ interface JwtPayload {
     logger.error('Authentication error:', error);
     
     if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         error: {
           message: 'Invalid token',
@@ -86,7 +131,7 @@ interface JwtPayload {
     }
 
     if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         error: {
           message: 'Token expired',
@@ -108,11 +153,17 @@ interface JwtPayload {
 /**
  * Middleware to authorize users based on roles
  */
-{{#typescript}}export const authorize = (roles: string[]) => {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {{{/typescript}}{{^typescript}}const authorize = (roles) => {
-  return (req, res, next) => {{{/typescript}}
+{{#typescript}}
+export const authorize = (roles: string[]) => {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+{{/typescript}}
+
+{{^typescript}}
+const authorize = (roles) => {
+  return (req, res, next) => {
+{{/typescript}}
     if (!req.user) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         error: {
           message: 'Authentication required',
@@ -140,11 +191,17 @@ interface JwtPayload {
 /**
  * Optional authentication middleware - doesn't fail if no token
  */
-{{#typescript}}export const optionalAuth = async (
+{{#typescript}}
+export const optionalAuth = async (
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
-): Promise<void> => {{{/typescript}}{{^typescript}}const optionalAuth = async (req, res, next) => {{{/typescript}}
+): Promise<void> => {
+{{/typescript}}
+
+{{^typescript}}
+const optionalAuth = async (req, res, next) => {
+{{/typescript}}
   try {
     const authHeader = req.headers.authorization;
     
@@ -170,8 +227,11 @@ interface JwtPayload {
   }
 };
 
-{{^typescript}}module.exports = {
+{{^typescript}}
+module.exports = {
   authenticate,
   authorize,
   optionalAuth
-};{{/typescript}}{{/authentication}}
+};
+{{/typescript}}
+{{/authentication}}

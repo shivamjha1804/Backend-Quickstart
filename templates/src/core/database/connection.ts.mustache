@@ -1,20 +1,25 @@
-{{^mongodb}}{{#typescript}}import { Sequelize } from 'sequelize';{{/typescript}}{{^typescript}}const { Sequelize } = require('sequelize');{{/typescript}}
-{{#typescript}}import { config } from '../../config';{{/typescript}}{{^typescript}}const { config } = require('../../config');{{/typescript}}
-{{#typescript}}import { logger } from '../utils/logger';{{/typescript}}{{^typescript}}const { logger } = require('../utils/logger');{{/typescript}}
+{{^mongodb}}
+{{#typescript}}
+import { Sequelize } from 'sequelize';
+import { config } from '../../config';
+import { logger } from '../utils/logger';
 
-{{#typescript}}let sequelize: Sequelize;{{/typescript}}{{^typescript}}let sequelize;{{/typescript}}
+let sequelize: Sequelize;
 
-{{#typescript}}export async function connectDB(): Promise<void> {{{/typescript}}{{^typescript}}async function connectDB() {{{/typescript}}
+export async function connectDB(): Promise<void> {
   try {
-    {{#sqlite}}// SQLite configuration
+    {{#sqlite}}
+    // SQLite configuration
     sequelize = new Sequelize({
       dialect: 'sqlite',
       storage: process.env.DB_PATH || './database.sqlite',
       logging: config.database.logging ? (msg) => logger.info(msg) : false,
       pool: config.database.pool
-    });{{/sqlite}}
+    });
+    {{/sqlite}}
 
-    {{#postgresql}}// PostgreSQL configuration
+    {{#postgresql}}
+    // PostgreSQL configuration
     sequelize = new Sequelize(
       config.database.name,
       config.database.username,
@@ -31,9 +36,11 @@
           paranoid: true
         }
       }
-    );{{/postgresql}}
+    );
+    {{/postgresql}}
 
-    {{#mysql}}// MySQL configuration
+    {{#mysql}}
+    // MySQL configuration
     sequelize = new Sequelize(
       config.database.name,
       config.database.username,
@@ -50,7 +57,8 @@
           paranoid: true
         }
       }
-    );{{/mysql}}
+    );
+    {{/mysql}}
 
     // Test the connection
     await sequelize.authenticate();
@@ -68,7 +76,7 @@
   }
 }
 
-{{#typescript}}export async function closeDB(): Promise<void> {{{/typescript}}{{^typescript}}async function closeDB() {{{/typescript}}
+export async function closeDB(): Promise<void> {
   try {
     if (sequelize) {
       await sequelize.close();
@@ -80,8 +88,102 @@
   }
 }
 
-{{#typescript}}export { sequelize };{{/typescript}}{{^typescript}}module.exports = {
+export { sequelize };
+{{/typescript}}
+
+{{^typescript}}
+const { Sequelize } = require('sequelize');
+const { config } = require('../../config');
+const { logger } = require('../utils/logger');
+
+let sequelize;
+
+async function connectDB() {
+  try {
+    {{#sqlite}}
+    // SQLite configuration
+    sequelize = new Sequelize({
+      dialect: 'sqlite',
+      storage: process.env.DB_PATH || './database.sqlite',
+      logging: config.database.logging ? (msg) => logger.info(msg) : false,
+      pool: config.database.pool
+    });
+    {{/sqlite}}
+
+    {{#postgresql}}
+    // PostgreSQL configuration
+    sequelize = new Sequelize(
+      config.database.name,
+      config.database.username,
+      config.database.password,
+      {
+        host: config.database.host,
+        port: config.database.port,
+        dialect: 'postgres',
+        logging: config.database.logging ? (msg) => logger.info(msg) : false,
+        pool: config.database.pool,
+        define: {
+          timestamps: true,
+          underscored: true,
+          paranoid: true
+        }
+      }
+    );
+    {{/postgresql}}
+
+    {{#mysql}}
+    // MySQL configuration
+    sequelize = new Sequelize(
+      config.database.name,
+      config.database.username,
+      config.database.password,
+      {
+        host: config.database.host,
+        port: config.database.port,
+        dialect: 'mysql',
+        logging: config.database.logging ? (msg) => logger.info(msg) : false,
+        pool: config.database.pool,
+        define: {
+          timestamps: true,
+          underscored: true,
+          paranoid: true
+        }
+      }
+    );
+    {{/mysql}}
+
+    // Test the connection
+    await sequelize.authenticate();
+    logger.info('Database connection established successfully');
+
+    // Sync models in development
+    if (config.server.env === 'development') {
+      await sequelize.sync({ alter: true });
+      logger.info('Database models synchronized');
+    }
+
+  } catch (error) {
+    logger.error('Unable to connect to the database:', error);
+    throw error;
+  }
+}
+
+async function closeDB() {
+  try {
+    if (sequelize) {
+      await sequelize.close();
+      logger.info('Database connection closed');
+    }
+  } catch (error) {
+    logger.error('Error closing database connection:', error);
+    throw error;
+  }
+}
+
+module.exports = {
   connectDB,
   closeDB,
   sequelize
-};{{/typescript}}{{/mongodb}}
+};
+{{/typescript}}
+{{/mongodb}}

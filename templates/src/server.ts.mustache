@@ -1,58 +1,175 @@
-{{#typescript}}import dotenv from 'dotenv';{{/typescript}}{{^typescript}}const dotenv = require('dotenv');{{/typescript}}
+{{#typescript}}
+import dotenv from 'dotenv';
+import { createServer } from 'http';
+{{/typescript}}
+
+{{^typescript}}
+const dotenv = require('dotenv');
+const { createServer } = require('http');
+{{/typescript}}
 
 // Load environment variables first
 dotenv.config();
 
-{{#typescript}}import app from './app';{{/typescript}}{{^typescript}}const app = require('./app');{{/typescript}}
-{{#typescript}}import { config } from './config';{{/typescript}}{{^typescript}}const { config } = require('./config');{{/typescript}}
-{{#typescript}}import { logger } from './core/utils/logger';{{/typescript}}{{^typescript}}const { logger } = require('./core/utils/logger');{{/typescript}}
+{{#typescript}}
+import app from './app';
+import { config } from './config';
+import { logger } from './core/utils/logger';
+{{/typescript}}
 
-// Import database connection
-{{^mongodb}}{{#typescript}}import { connectDB } from './core/database';{{/typescript}}{{^typescript}}const { connectDB } = require('./core/database');{{/typescript}}{{/mongodb}}
-{{#mongodb}}{{#typescript}}import { connectMongoDB } from './core/database';{{/typescript}}{{^typescript}}const { connectMongoDB } = require('./core/database');{{/typescript}}{{/mongodb}}
+{{^typescript}}
+const app = require('./app');
+const { config } = require('./config');
+const { logger } = require('./core/utils/logger');
+{{/typescript}}
 
-{{#typescript}}async function startServer(): Promise<void> {{{/typescript}}{{^typescript}}async function startServer() {{{/typescript}}
+// Enterprise imports
+{{#typescript}}
+import { dbConnectionManager } from './core/database/connectionManager';
+import { clusterManager } from './core/cluster/clusterManager';
+import { healthCheckService } from './core/monitoring/healthCheck';
+{{/typescript}}
+
+{{^typescript}}
+const { dbConnectionManager } = require('./core/database/connectionManager');
+const { clusterManager } = require('./core/cluster/clusterManager');
+const { healthCheckService } = require('./core/monitoring/healthCheck');
+{{/typescript}}
+
+// Global server instance for cluster management
+let server{{#typescript}}: any{{/typescript}};
+
+{{#typescript}}
+async function startServer(): Promise<void> {
+{{/typescript}}
+
+{{^typescript}}
+async function startServer() {
+{{/typescript}}
   try {
-    // Connect to database
-    {{^mongodb}}await connectDB();{{/mongodb}}
-    {{#mongodb}}await connectMongoDB();{{/mongodb}}
+    logger.info('🚀 Starting enterprise backend server...');
+    
+    // ENTERPRISE: Initialize database connection manager
+    logger.info('📊 Initializing enterprise database connection manager...');
+    await dbConnectionManager.initialize();
+    
+    // ENTERPRISE: Initialize health check service
+    logger.info('🏥 Initializing enterprise health check service...');
+    await healthCheckService.performHealthCheck();
+    
+    // Create HTTP server with enterprise configuration
+    server = createServer(app);
+    
+    // ENTERPRISE: Configure server timeouts for production
+    server.timeout = config.server.timeout || 120000; // 2 minutes
+    server.keepAliveTimeout = config.server.keepAliveTimeout || 65000; // 65 seconds
+    server.headersTimeout = config.server.headersTimeout || 66000; // 66 seconds
     
     // Start server
-    const server = app.listen(config.server.port, config.server.host, () => {
-      logger.info(`🚀 Server running on ${config.server.host}:${config.server.port}`);
+    server.listen(config.server.port, config.server.host, () => {
+      logger.info(`🚀 Enterprise server running on ${config.server.host}:${config.server.port}`);
       logger.info(`📖 API Documentation: http://${config.server.host}:${config.server.port}/api-docs`);
       logger.info(`🏥 Health Check: http://${config.server.host}:${config.server.port}/health`);
+      logger.info(`📊 Metrics Endpoint: http://${config.server.host}:${config.server.port}/metrics`);
+      logger.info(`📈 Status Endpoint: http://${config.server.host}:${config.server.port}/status`);
       logger.info(`🌍 Environment: ${config.server.env}`);
+      logger.info(`🔒 Security: Enterprise hardening enabled`);
+      logger.info(`📡 Monitoring: Enterprise observability enabled`);
+      
+      // Log startup performance
+      const uptime = process.uptime();
+      logger.info(`⚡ Server startup completed in ${uptime.toFixed(2)}s`);
     });
 
-    // Graceful shutdown
-    const gracefulShutdown = () => {
-      logger.info('Received shutdown signal, shutting down gracefully...');
-      server.close(() => {
-        logger.info('Process terminated');
-        process.exit(0);
-      });
-    };
-
-    process.on('SIGTERM', gracefulShutdown);
-    process.on('SIGINT', gracefulShutdown);
+    // ENTERPRISE: Setup graceful shutdown with proper cleanup order
+    setupGracefulShutdown();
 
   } catch (error) {
-    logger.error('Failed to start server:', error);
+    logger.error('💥 Failed to start enterprise server:', error);
+    await gracefulShutdown();
     process.exit(1);
   }
 }
 
-// Handle uncaught exceptions
+/**
+ * Enterprise graceful shutdown with proper cleanup order
+ */
+{{#typescript}}
+async function setupGracefulShutdown(): Promise<void> {
+{{/typescript}}
+
+{{^typescript}}
+async function setupGracefulShutdown() {
+{{/typescript}}
+  const shutdownSignals = ['SIGTERM', 'SIGINT', 'SIGUSR2'];
+  
+  shutdownSignals.forEach(signal => {
+    process.on(signal, () => {
+      logger.info(`🛑 Received ${signal}, starting graceful shutdown...`);
+      gracefulShutdown();
+    });
+  });
+}
+
+/**
+ * Perform graceful shutdown with proper cleanup
+ */
+{{#typescript}}
+async function gracefulShutdown(): Promise<void> {
+{{/typescript}}
+
+{{^typescript}}
+async function gracefulShutdown() {
+{{/typescript}}
+  logger.info('🛑 Starting graceful shutdown sequence...');
+  
+  try {
+    // Step 1: Stop accepting new connections
+    if (server) {
+      logger.info('🔌 Closing HTTP server...');
+      server.close();
+    }
+    
+    // Step 2: Close database connections
+    logger.info('🗄️ Closing database connections...');
+    await dbConnectionManager.shutdown();
+    
+    // Step 3: Final cleanup
+    logger.info('✅ Graceful shutdown completed');
+    process.exit(0);
+    
+  } catch (error) {
+    logger.error('💥 Error during graceful shutdown:', error);
+    process.exit(1);
+  }
+}
+
+// Handle uncaught exceptions with enterprise logging
 process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception:', error);
-  process.exit(1);
+  logger.error('💥 Uncaught Exception - Enterprise server will shutdown:', error);
+  gracefulShutdown();
 });
 
-// Handle unhandled promise rejections
+// Handle unhandled promise rejections with enterprise logging  
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
+  logger.error('💥 Unhandled Rejection - Enterprise server will shutdown:', { reason, promise });
+  gracefulShutdown();
 });
 
-startServer();
+// ENTERPRISE STARTUP: Cluster or single instance
+if (config.cluster?.enabled && config.server.env === 'production') {
+  logger.info('🔧 Starting in ENTERPRISE CLUSTER mode...');
+  clusterManager.start();
+} else {
+  logger.info('🔧 Starting in SINGLE INSTANCE mode...');
+  startServer();
+}
+
+// Export for testing and external use
+{{#typescript}}
+export { server, startServer, gracefulShutdown };
+{{/typescript}}
+
+{{^typescript}}
+module.exports = { server, startServer, gracefulShutdown };
+{{/typescript}}

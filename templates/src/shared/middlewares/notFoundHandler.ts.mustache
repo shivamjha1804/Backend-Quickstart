@@ -1,6 +1,15 @@
-{{#typescript}}import { Request, Response } from 'express';{{/typescript}}{{^typescript}}const { Request, Response } = require('express');{{/typescript}}
+{{#typescript}}import { Request, Response } from 'express';
 
-{{#typescript}}export const notFoundHandler = (req: Request, res: Response): void => {{{/typescript}}{{^typescript}}const notFoundHandler = (req, res) => {{{/typescript}}
+export const notFoundHandler = (req: Request, res: Response): void => {
+  res.status(404).json({
+    success: false,
+    error: {
+      message: `Route ${req.originalUrl} not found`,
+      statusCode: 404
+    }
+  });
+};{{/typescript}}
+{{^typescript}}const notFoundHandler = (req, res) => {
   res.status(404).json({
     success: false,
     error: {
@@ -10,4 +19,4 @@
   });
 };
 
-{{^typescript}}module.exports = { notFoundHandler };{{/typescript}}
+module.exports = { notFoundHandler };{{/typescript}}

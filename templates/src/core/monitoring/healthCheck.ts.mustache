@@ -1,0 +1,530 @@
+{{#typescript}}import { Request, Response } from 'express';{{/typescript}}{{^typescript}}const express = require('express');{{/typescript}}
+{{#typescript}}import { config } from '../../config';{{/typescript}}{{^typescript}}const { config } = require('../../config');{{/typescript}}
+{{#typescript}}import { logger } from '../utils/logger';{{/typescript}}{{^typescript}}const { logger } = require('../utils/logger');{{/typescript}}
+{{#typescript}}import { dbConnectionManager } from '../database/connectionManager';{{/typescript}}{{^typescript}}const { dbConnectionManager } = require('../database/connectionManager');{{/typescript}}
+{{#typescript}}import { metricsCollector } from './metricsCollector';{{/typescript}}{{^typescript}}const { metricsCollector } = require('./metricsCollector');{{/typescript}}
+{{#redis}}{{#typescript}}import Redis from 'ioredis';{{/typescript}}{{^typescript}}const Redis = require('ioredis');{{/typescript}}{{/redis}}
+
+/**
+ * Enterprise-grade health check system with comprehensive diagnostics
+ * Provides detailed health status for all system components including
+ * database, cache, external services, and system resources
+ */
+
+{{#typescript}}interface HealthStatus {
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  timestamp: string;
+  uptime: number;
+  version: string;
+  environment: string;
+  checks: {
+    [key: string]: ComponentHealth;
+  };
+  metrics: {
+    memory: MemoryMetrics;
+    cpu: CpuMetrics;
+    database: DatabaseMetrics;
+    cache?: CacheMetrics;
+    network: NetworkMetrics;
+  };
+}
+
+interface ComponentHealth {
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  responseTime: number;
+  details: string;
+  lastCheck: string;
+  error?: string;
+}
+
+interface MemoryMetrics {
+  heapUsed: number;
+  heapTotal: number;
+  external: number;
+  rss: number;
+  arrayBuffers: number;
+}
+
+interface CpuMetrics {
+  user: number;
+  system: number;
+  loadAverage: number[];
+}
+
+interface DatabaseMetrics {
+  connected: boolean;
+  connectionPool: {
+    total: number;
+    active: number;
+    idle: number;
+    waiting: number;
+  };
+  responseTime: number;
+  errors: number;
+}
+
+interface CacheMetrics {
+  connected: boolean;
+  responseTime: number;
+  memoryUsage: number;
+  connectedClients: number;
+}
+
+interface NetworkMetrics {
+  activeConnections: number;
+  requestsPerSecond: number;
+  averageResponseTime: number;
+}{{/typescript}}
+
+{{#typescript}}export class HealthCheckService{{/typescript}}{{^typescript}}class HealthCheckService{{/typescript}} {
+  {{#redis}}{{#typescript}}private redis: Redis | null = null;{{/typescript}}{{^typescript}}redis = null;{{/typescript}}{{/redis}}
+  {{#typescript}}private healthHistory: HealthStatus[] = [];{{/typescript}}{{^typescript}}healthHistory = [];{{/typescript}}
+  {{#typescript}}private readonly MAX_HISTORY = 100;{{/typescript}}{{^typescript}}MAX_HISTORY = 100;{{/typescript}}
+
+  constructor() {
+    {{#redis}}this.initializeRedis();{{/redis}}
+  }
+
+  {{#redis}}/**
+   * Initialize Redis connection for health checks
+   */
+  {{#typescript}}private initializeRedis(): void{{/typescript}}{{^typescript}}initializeRedis(){{/typescript}} {
+    try {
+      this.redis = new Redis({
+        host: config.redis?.host || 'localhost',
+        port: config.redis?.port || 6379,
+        password: config.redis?.password,
+        connectTimeout: 5000,
+        lazyConnect: true,
+        retryDelayOnFailover: 100,
+        maxRetriesPerRequest: 3
+      });
+    } catch (error) {
+      logger.warn('Failed to initialize Redis for health checks', error);
+    }
+  }{{/redis}}
+
+  /**
+   * Comprehensive health check endpoint
+   */
+  {{#typescript}}async performHealthCheck(): Promise<HealthStatus>{{/typescript}}{{^typescript}}async performHealthCheck(){{/typescript}} {
+    const startTime = Date.now();
+    const timestamp = new Date().toISOString();
+
+    try {
+      // Perform all health checks in parallel
+      const [
+        databaseHealth,
+        {{#redis}}cacheHealth,{{/redis}}
+        memoryMetrics,
+        cpuMetrics,
+        networkMetrics
+      ] = await Promise.all([
+        this.checkDatabaseHealth(),
+        {{#redis}}this.checkCacheHealth(),{{/redis}}
+        this.getMemoryMetrics(),
+        this.getCpuMetrics(),
+        this.getNetworkMetrics()
+      ]);
+
+      const checks{{#typescript}}: { [key: string]: ComponentHealth }{{/typescript}} = {
+        database: databaseHealth{{#redis}},
+        cache: cacheHealth{{/redis}}
+      };
+
+      // Determine overall health status
+      const overallStatus = this.determineOverallStatus(checks);
+
+      const healthStatus{{#typescript}}: HealthStatus{{/typescript}} = {
+        status: overallStatus,
+        timestamp,
+        uptime: process.uptime(),
+        version: process.env.npm_package_version || '1.0.0',
+        environment: config.server.env,
+        checks,
+        metrics: {
+          memory: memoryMetrics,
+          cpu: cpuMetrics,
+          database: await this.getDatabaseMetrics(),
+          {{#redis}}cache: await this.getCacheMetrics(),{{/redis}}
+          network: networkMetrics
+        }
+      };
+
+      // Store in history
+      this.addToHistory(healthStatus);
+
+      const duration = Date.now() - startTime;
+      logger.debug('Health check completed', { duration, status: overallStatus });
+
+      return healthStatus;
+    } catch (error) {
+      logger.error('Health check failed', error);
+      
+      const errorStatus{{#typescript}}: HealthStatus{{/typescript}} = {
+        status: 'unhealthy',
+        timestamp,
+        uptime: process.uptime(),
+        version: process.env.npm_package_version || '1.0.0',
+        environment: config.server.env,
+        checks: {
+          system: {
+            status: 'unhealthy',
+            responseTime: Date.now() - startTime,
+            details: 'Health check system failure',
+            lastCheck: timestamp,
+            error: error.message
+          }
+        },
+        metrics: {
+          memory: this.getMemoryMetrics(),
+          cpu: await this.getCpuMetrics(),
+          database: { connected: false, connectionPool: { total: 0, active: 0, idle: 0, waiting: 0 }, responseTime: 0, errors: 1 },
+          network: { activeConnections: 0, requestsPerSecond: 0, averageResponseTime: 0 }
+        }
+      };
+
+      this.addToHistory(errorStatus);
+      return errorStatus;
+    }
+  }
+
+  /**
+   * Check database health
+   */
+  {{#typescript}}private async checkDatabaseHealth(): Promise<ComponentHealth>{{/typescript}}{{^typescript}}async checkDatabaseHealth(){{/typescript}} {
+    const startTime = Date.now();
+    
+    try {
+      const isHealthy = await dbConnectionManager.performHealthCheck();
+      const responseTime = Date.now() - startTime;
+
+      return {
+        status: isHealthy ? 'healthy' : 'unhealthy',
+        responseTime,
+        details: isHealthy ? 'Database connection is healthy' : 'Database connection issues detected',
+        lastCheck: new Date().toISOString(),
+        ...(isHealthy ? {} : { error: 'Database health check failed' })
+      };
+    } catch (error) {
+      return {
+        status: 'unhealthy',
+        responseTime: Date.now() - startTime,
+        details: 'Database connection failed',
+        lastCheck: new Date().toISOString(),
+        error: error.message
+      };
+    }
+  }
+
+  {{#redis}}/**
+   * Check cache (Redis) health
+   */
+  {{#typescript}}private async checkCacheHealth(): Promise<ComponentHealth>{{/typescript}}{{^typescript}}async checkCacheHealth(){{/typescript}} {
+    const startTime = Date.now();
+    
+    if (!this.redis) {
+      return {
+        status: 'unhealthy',
+        responseTime: 0,
+        details: 'Redis not configured',
+        lastCheck: new Date().toISOString(),
+        error: 'Redis connection not initialized'
+      };
+    }
+
+    try {
+      await this.redis.ping();
+      const responseTime = Date.now() - startTime;
+
+      return {
+        status: 'healthy',
+        responseTime,
+        details: 'Cache connection is healthy',
+        lastCheck: new Date().toISOString()
+      };
+    } catch (error) {
+      return {
+        status: 'unhealthy',
+        responseTime: Date.now() - startTime,
+        details: 'Cache connection failed',
+        lastCheck: new Date().toISOString(),
+        error: error.message
+      };
+    }
+  }{{/redis}}
+
+  /**
+   * Get memory metrics
+   */
+  {{#typescript}}private getMemoryMetrics(): MemoryMetrics{{/typescript}}{{^typescript}}getMemoryMetrics(){{/typescript}} {
+    const memUsage = process.memoryUsage();
+    return {
+      heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024), // MB
+      heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024), // MB
+      external: Math.round(memUsage.external / 1024 / 1024), // MB
+      rss: Math.round(memUsage.rss / 1024 / 1024), // MB
+      arrayBuffers: Math.round(memUsage.arrayBuffers / 1024 / 1024) // MB
+    };
+  }
+
+  /**
+   * Get CPU metrics
+   */
+  {{#typescript}}private async getCpuMetrics(): Promise<CpuMetrics>{{/typescript}}{{^typescript}}async getCpuMetrics(){{/typescript}} {
+    const os = require('os');
+    const cpuUsage = process.cpuUsage();
+    
+    return {
+      user: cpuUsage.user / 1000000, // Convert to seconds
+      system: cpuUsage.system / 1000000, // Convert to seconds
+      loadAverage: os.loadavg()
+    };
+  }
+
+  /**
+   * Get database metrics
+   */
+  {{#typescript}}private async getDatabaseMetrics(): Promise<DatabaseMetrics>{{/typescript}}{{^typescript}}async getDatabaseMetrics(){{/typescript}} {
+    try {
+      const stats = dbConnectionManager.getConnectionStats();
+      return {
+        connected: stats.isHealthy,
+        connectionPool: {
+          total: stats.totalConnections,
+          active: stats.activeConnections,
+          idle: stats.idleConnections,
+          waiting: stats.waitingConnections
+        },
+        responseTime: Date.now() - stats.lastHealthCheck.getTime(),
+        errors: stats.errors.length
+      };
+    } catch (error) {
+      return {
+        connected: false,
+        connectionPool: { total: 0, active: 0, idle: 0, waiting: 0 },
+        responseTime: 0,
+        errors: 1
+      };
+    }
+  }
+
+  {{#redis}}/**
+   * Get cache metrics
+   */
+  {{#typescript}}private async getCacheMetrics(): Promise<CacheMetrics>{{/typescript}}{{^typescript}}async getCacheMetrics(){{/typescript}} {
+    if (!this.redis) {
+      return {
+        connected: false,
+        responseTime: 0,
+        memoryUsage: 0,
+        connectedClients: 0
+      };
+    }
+
+    try {
+      const startTime = Date.now();
+      const info = await this.redis.info('memory');
+      const responseTime = Date.now() - startTime;
+      
+      // Parse memory info
+      const memoryMatch = info.match(/used_memory:(\d+)/);
+      const clientsMatch = info.match(/connected_clients:(\d+)/);
+      
+      return {
+        connected: true,
+        responseTime,
+        memoryUsage: memoryMatch ? parseInt(memoryMatch[1]) / 1024 / 1024 : 0, // MB
+        connectedClients: clientsMatch ? parseInt(clientsMatch[1]) : 0
+      };
+    } catch (error) {
+      return {
+        connected: false,
+        responseTime: 0,
+        memoryUsage: 0,
+        connectedClients: 0
+      };
+    }
+  }{{/redis}}
+
+  /**
+   * Get network metrics
+   */
+  {{#typescript}}private getNetworkMetrics(): NetworkMetrics{{/typescript}}{{^typescript}}getNetworkMetrics(){{/typescript}} {
+    // These would typically be collected from request metrics
+    const summary = metricsCollector.getMetricsSummary();
+    
+    return {
+      activeConnections: 0, // Would be tracked by connection middleware
+      requestsPerSecond: 0, // Would be calculated from request metrics
+      averageResponseTime: 0 // Would be calculated from response time metrics
+    };
+  }
+
+  /**
+   * Determine overall health status from component checks
+   */
+  {{#typescript}}private determineOverallStatus(checks: { [key: string]: ComponentHealth }): 'healthy' | 'degraded' | 'unhealthy'{{/typescript}}{{^typescript}}determineOverallStatus(checks){{/typescript}} {
+    const statuses = Object.values(checks).map(check => check.status);
+    
+    if (statuses.every(status => status === 'healthy')) {
+      return 'healthy';
+    } else if (statuses.some(status => status === 'unhealthy')) {
+      return 'unhealthy';
+    } else {
+      return 'degraded';
+    }
+  }
+
+  /**
+   * Add health check to history
+   */
+  {{#typescript}}private addToHistory(healthStatus: HealthStatus): void{{/typescript}}{{^typescript}}addToHistory(healthStatus){{/typescript}} {
+    this.healthHistory.unshift(healthStatus);
+    
+    // Keep only the last MAX_HISTORY entries
+    if (this.healthHistory.length > this.MAX_HISTORY) {
+      this.healthHistory = this.healthHistory.slice(0, this.MAX_HISTORY);
+    }
+  }
+
+  /**
+   * Get health history
+   */
+  {{#typescript}}getHealthHistory(limit = 10): HealthStatus[]{{/typescript}}{{^typescript}}getHealthHistory(limit = 10){{/typescript}} {
+    return this.healthHistory.slice(0, limit);
+  }
+
+  /**
+   * Simple health check for load balancer
+   */
+  {{#typescript}}async simpleHealthCheck(): Promise<{ status: string; timestamp: string }>{{/typescript}}{{^typescript}}async simpleHealthCheck(){{/typescript}} {
+    try {
+      const dbHealthy = await dbConnectionManager.performHealthCheck();
+      return {
+        status: dbHealthy ? 'OK' : 'ERROR',
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      return {
+        status: 'ERROR',
+        timestamp: new Date().toISOString()
+      };
+    }
+  }
+
+  /**
+   * Readiness check (for Kubernetes)
+   */
+  {{#typescript}}async readinessCheck(): Promise<{ ready: boolean; details: string }>{{/typescript}}{{^typescript}}async readinessCheck(){{/typescript}} {
+    try {
+      const dbReady = dbConnectionManager.isReady();
+      {{#redis}}const cacheReady = this.redis ? await this.redis.ping().then(() => true).catch(() => false) : true;{{/redis}}
+      
+      const ready = dbReady{{#redis}} && cacheReady{{/redis}};
+      
+      return {
+        ready,
+        details: ready ? 'Service is ready to accept requests' : 'Service is not ready - dependencies not available'
+      };
+    } catch (error) {
+      return {
+        ready: false,
+        details: `Readiness check failed: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Liveness check (for Kubernetes)
+   */
+  {{#typescript}}async livenessCheck(): Promise<{ alive: boolean; uptime: number }>{{/typescript}}{{^typescript}}async livenessCheck(){{/typescript}} {
+    return {
+      alive: true,
+      uptime: Math.floor(process.uptime())
+    };
+  }
+}
+
+/**
+ * Express middleware for health check endpoints
+ */
+{{#typescript}}export const createHealthCheckEndpoints = (healthCheck: HealthCheckService) =>{{/typescript}}{{^typescript}}const createHealthCheckEndpoints = (healthCheck) =>{{/typescript}} {
+  return {
+    // Comprehensive health check
+    {{#typescript}}health: async (req: Request, res: Response): Promise<void> =>{{/typescript}}{{^typescript}}health: async (req, res) =>{{/typescript}} {
+      try {
+        const healthStatus = await healthCheck.performHealthCheck();
+        const statusCode = healthStatus.status === 'healthy' ? 200 
+                         : healthStatus.status === 'degraded' ? 200 
+                         : 503;
+        
+        res.status(statusCode).json({
+          success: healthStatus.status !== 'unhealthy',
+          data: healthStatus
+        });
+      } catch (error) {
+        res.status(503).json({
+          success: false,
+          error: {
+            message: 'Health check failed',
+            details: error.message
+          }
+        });
+      }
+    },
+
+    // Simple health check for load balancers
+    {{#typescript}}ping: async (req: Request, res: Response): Promise<void> =>{{/typescript}}{{^typescript}}ping: async (req, res) =>{{/typescript}} {
+      try {
+        const result = await healthCheck.simpleHealthCheck();
+        res.status(result.status === 'OK' ? 200 : 503).json(result);
+      } catch (error) {
+        res.status(503).json({
+          status: 'ERROR',
+          timestamp: new Date().toISOString(),
+          error: error.message
+        });
+      }
+    },
+
+    // Kubernetes readiness probe
+    {{#typescript}}ready: async (req: Request, res: Response): Promise<void> =>{{/typescript}}{{^typescript}}ready: async (req, res) =>{{/typescript}} {
+      try {
+        const result = await healthCheck.readinessCheck();
+        res.status(result.ready ? 200 : 503).json(result);
+      } catch (error) {
+        res.status(503).json({
+          ready: false,
+          details: `Readiness check failed: ${error.message}`
+        });
+      }
+    },
+
+    // Kubernetes liveness probe
+    {{#typescript}}live: async (req: Request, res: Response): Promise<void> =>{{/typescript}}{{^typescript}}live: async (req, res) =>{{/typescript}} {
+      try {
+        const result = await healthCheck.livenessCheck();
+        res.status(200).json(result);
+      } catch (error) {
+        res.status(503).json({
+          alive: false,
+          uptime: 0,
+          error: error.message
+        });
+      }
+    }
+  };
+};
+
+// Export singleton instance
+{{#typescript}}export const healthCheckService = new HealthCheckService();
+export const healthEndpoints = createHealthCheckEndpoints(healthCheckService);{{/typescript}}{{^typescript}}const healthCheckService = new HealthCheckService();
+const healthEndpoints = createHealthCheckEndpoints(healthCheckService);
+
+module.exports = { 
+  healthCheckService, 
+  healthEndpoints, 
+  HealthCheckService, 
+  createHealthCheckEndpoints 
+};{{/typescript}}

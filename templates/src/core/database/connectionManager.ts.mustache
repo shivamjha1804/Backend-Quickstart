@@ -1,0 +1,495 @@
+{{#typescript}}import { Sequelize, ConnectionError, TimeoutError } from 'sequelize';{{/typescript}}{{^typescript}}const { Sequelize, ConnectionError, TimeoutError } = require('sequelize');{{/typescript}}
+{{#mongodb}}{{#typescript}}import mongoose from 'mongoose';{{/typescript}}{{^typescript}}const mongoose = require('mongoose');{{/typescript}}{{/mongodb}}
+{{#typescript}}import { config } from '../../config';{{/typescript}}{{^typescript}}const { config } = require('../../config');{{/typescript}}
+{{#typescript}}import { logger } from '../utils/logger';{{/typescript}}{{^typescript}}const { logger } = require('../utils/logger');{{/typescript}}
+
+/**
+ * Enterprise-grade database connection manager with advanced pooling,
+ * failover, health monitoring, and connection recovery
+ */
+
+{{#typescript}}interface ConnectionStats {
+  totalConnections: number;
+  activeConnections: number;
+  idleConnections: number;
+  waitingConnections: number;
+  lastHealthCheck: Date;
+  isHealthy: boolean;
+  errors: string[];
+}
+
+interface ConnectionConfig {
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password: string;
+  dialect: string;
+  pool: {
+    max: number;
+    min: number;
+    acquire: number;
+    idle: number;
+    evict: number;
+    handleDisconnects: boolean;
+  };
+  retry: {
+    max: number;
+    timeout: number;
+    match: string[];
+  };
+  logging: boolean | Function;
+  benchmark: boolean;
+  isolationLevel: string;
+  ssl: boolean | object;
+  dialectOptions: {
+    ssl?: object;
+    connectTimeout?: number;
+    acquireTimeout?: number;
+    timeout?: number;
+    requestTimeout?: number;
+  };
+}{{/typescript}}
+
+{{#typescript}}export class DatabaseConnectionManager{{/typescript}}{{^typescript}}class DatabaseConnectionManager{{/typescript}} {
+  {{#typescript}}private sequelize: Sequelize | null = null;{{/typescript}}{{^typescript}}sequelize = null;{{/typescript}}
+  {{#mongodb}}{{#typescript}}private mongoose: typeof mongoose | null = null;{{/typescript}}{{^typescript}}mongoose = null;{{/typescript}}{{/mongodb}}
+  {{#typescript}}private connectionStats: ConnectionStats = {
+    totalConnections: 0,
+    activeConnections: 0,
+    idleConnections: 0,
+    waitingConnections: 0,
+    lastHealthCheck: new Date(),
+    isHealthy: false,
+    errors: []
+  };{{/typescript}}{{^typescript}}connectionStats = {
+    totalConnections: 0,
+    activeConnections: 0,
+    idleConnections: 0,
+    waitingConnections: 0,
+    lastHealthCheck: new Date(),
+    isHealthy: false,
+    errors: []
+  };{{/typescript}}
+
+  {{#typescript}}private healthCheckInterval: NodeJS.Timeout | null = null;{{/typescript}}{{^typescript}}healthCheckInterval = null;{{/typescript}}
+  {{#typescript}}private reconnectAttempts = 0;{{/typescript}}{{^typescript}}reconnectAttempts = 0;{{/typescript}}
+  {{#typescript}}private readonly maxReconnectAttempts = 10;{{/typescript}}{{^typescript}}maxReconnectAttempts = 10;{{/typescript}}
+  {{#typescript}}private isConnecting = false;{{/typescript}}{{^typescript}}isConnecting = false;{{/typescript}}
+
+  /**
+   * Initialize database connection with enterprise configurations
+   */
+  {{#typescript}}async initialize(): Promise<void>{{/typescript}}{{^typescript}}async initialize(){{/typescript}} {
+    try {
+      this.isConnecting = true;
+      
+      {{^mongodb}}await this.initializeSequelize();{{/mongodb}}
+      {{#mongodb}}await this.initializeMongoose();{{/mongodb}}
+      
+      await this.performHealthCheck();
+      this.startHealthCheckInterval();
+      this.setupConnectionEventHandlers();
+      
+      this.isConnecting = false;
+      logger.info('Database connection manager initialized successfully');
+    } catch (error) {
+      this.isConnecting = false;
+      logger.error('Failed to initialize database connection manager', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Initialize Sequelize with enterprise pooling and failover
+   */
+  {{^mongodb}}{{#typescript}}private async initializeSequelize(): Promise<void>{{/typescript}}{{^typescript}}async initializeSequelize(){{/typescript}} {
+    const dbConfig{{#typescript}}: ConnectionConfig{{/typescript}} = {
+      host: config.database.host,
+      port: config.database.port,
+      database: config.database.name,
+      username: config.database.username,
+      password: config.database.password,
+      dialect: config.database.dialect,
+      
+      // Enterprise connection pooling
+      pool: {
+        max: config.database.pool?.max || 20,
+        min: config.database.pool?.min || 5,
+        acquire: config.database.pool?.acquire || 60000,
+        idle: config.database.pool?.idle || 10000,
+        evict: config.database.pool?.evict || 1000,
+        handleDisconnects: true
+      },
+      
+      // Advanced retry configuration
+      retry: {
+        max: 5,
+        timeout: 60000,
+        match: [
+          ConnectionError,
+          TimeoutError,
+          /ETIMEDOUT/,
+          /EHOSTUNREACH/,
+          /ECONNRESET/,
+          /ECONNREFUSED/,
+          /timeout/,
+          /SequelizeConnectionError/,
+          /SequelizeConnectionRefusedError/,
+          /SequelizeHostNotFoundError/,
+          /SequelizeHostNotReachableError/,
+          /SequelizeInvalidConnectionError/,
+          /SequelizeConnectionTimedOutError/,
+        ]
+      },
+      
+      // Logging and benchmarking
+      logging: config.server.env === 'development' 
+        ? (sql{{#typescript}}: string{{/typescript}}, timing{{#typescript}}?: number{{/typescript}}) => {
+            logger.debug('Database Query', { sql, timing });
+          }
+        : false,
+      benchmark: config.server.env !== 'production',
+      
+      // Transaction isolation
+      isolationLevel: config.database.isolationLevel || 'READ_COMMITTED',
+      
+      // SSL configuration
+      ssl: config.database.ssl || false,
+      
+      // Dialect-specific options
+      dialectOptions: {
+        ssl: config.database.ssl ? {
+          require: true,
+          rejectUnauthorized: false
+        } : false,
+        connectTimeout: 60000,
+        acquireTimeout: 60000,
+        timeout: 60000,
+        requestTimeout: 60000
+      }
+    };
+
+    this.sequelize = new Sequelize(dbConfig);
+
+    // Test connection with retry logic
+    await this.connectWithRetry();
+  }{{/mongodb}}
+
+  /**
+   * Initialize Mongoose with enterprise configurations
+   */
+  {{#mongodb}}{{#typescript}}private async initializeMongoose(): Promise<void>{{/typescript}}{{^typescript}}async initializeMongoose(){{/typescript}} {
+    const mongoUri = `mongodb://${config.database.username}:${config.database.password}@${config.database.host}:${config.database.port}/${config.database.name}`;
+    
+    const mongoOptions = {
+      // Connection pool settings
+      maxPoolSize: config.database.pool?.max || 20,
+      minPoolSize: config.database.pool?.min || 5,
+      maxIdleTimeMS: config.database.pool?.idle || 30000,
+      waitQueueTimeoutMS: config.database.pool?.acquire || 60000,
+      
+      // Connection timeout settings
+      serverSelectionTimeoutMS: 30000,
+      socketTimeoutMS: 45000,
+      connectTimeoutMS: 30000,
+      
+      // Buffering and monitoring
+      bufferMaxEntries: 0,
+      bufferCommands: false,
+      
+      // Heartbeat and monitoring
+      heartbeatFrequencyMS: 10000,
+      
+      // Retry configuration
+      retryWrites: true,
+      retryReads: true,
+      
+      // SSL configuration
+      ssl: config.database.ssl || false,
+      sslValidate: config.database.ssl ? false : true,
+      
+      // Application name for monitoring
+      appName: config.server.name || 'backend-api'
+    };
+
+    await mongoose.connect(mongoUri, mongoOptions);
+    this.mongoose = mongoose;
+  }{{/mongodb}}
+
+  /**
+   * Connect with exponential backoff retry
+   */
+  {{^mongodb}}{{#typescript}}private async connectWithRetry(): Promise<void>{{/typescript}}{{^typescript}}async connectWithRetry(){{/typescript}} {
+    const maxRetries = 5;
+    let lastError{{#typescript}}: Error{{/typescript}};
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await this.sequelize.authenticate();
+        logger.info('Database connection established successfully');
+        this.reconnectAttempts = 0;
+        return;
+      } catch (error) {
+        lastError = error;
+        this.connectionStats.errors.push(`Attempt ${attempt}: ${error.message}`);
+        
+        if (attempt === maxRetries) {
+          logger.error('Failed to connect to database after maximum retries', {
+            attempts: maxRetries,
+            error: error.message
+          });
+          throw error;
+        }
+
+        const backoffDelay = Math.min(1000 * Math.pow(2, attempt - 1), 30000);
+        logger.warn(`Database connection failed, retrying in ${backoffDelay}ms (attempt ${attempt}/${maxRetries})`, {
+          error: error.message
+        });
+        
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
+      }
+    }
+  }{{/mongodb}}
+
+  /**
+   * Perform comprehensive health check
+   */
+  {{#typescript}}async performHealthCheck(): Promise<boolean>{{/typescript}}{{^typescript}}async performHealthCheck(){{/typescript}} {
+    try {
+      {{^mongodb}}// Sequelize health check
+      if (this.sequelize) {
+        await this.sequelize.authenticate();
+        
+        // Get connection pool stats
+        const pool = this.sequelize.connectionManager.pool;
+        if (pool) {
+          this.connectionStats = {
+            totalConnections: pool.size,
+            activeConnections: pool.used,
+            idleConnections: pool.available,
+            waitingConnections: pool.pending,
+            lastHealthCheck: new Date(),
+            isHealthy: true,
+            errors: []
+          };
+        }
+      }{{/mongodb}}
+      
+      {{#mongodb}}// MongoDB health check
+      if (this.mongoose) {
+        const adminDb = this.mongoose.connection.db.admin();
+        await adminDb.ping();
+        
+        this.connectionStats = {
+          totalConnections: this.mongoose.connection.readyState,
+          activeConnections: 1,
+          idleConnections: 0,
+          waitingConnections: 0,
+          lastHealthCheck: new Date(),
+          isHealthy: true,
+          errors: []
+        };
+      }{{/mongodb}}
+
+      logger.debug('Database health check passed', this.connectionStats);
+      return true;
+    } catch (error) {
+      this.connectionStats.isHealthy = false;
+      this.connectionStats.errors.push(error.message);
+      this.connectionStats.lastHealthCheck = new Date();
+      
+      logger.warn('Database health check failed', {
+        error: error.message,
+        stats: this.connectionStats
+      });
+      
+      return false;
+    }
+  }
+
+  /**
+   * Start periodic health check
+   */
+  {{#typescript}}private startHealthCheckInterval(): void{{/typescript}}{{^typescript}}startHealthCheckInterval(){{/typescript}} {
+    // Health check every 30 seconds
+    this.healthCheckInterval = setInterval(async () => {
+      const isHealthy = await this.performHealthCheck();
+      
+      if (!isHealthy && !this.isConnecting) {
+        logger.warn('Database unhealthy, attempting reconnection');
+        await this.handleReconnection();
+      }
+    }, 30000);
+  }
+
+  /**
+   * Handle connection recovery
+   */
+  {{#typescript}}private async handleReconnection(): Promise<void>{{/typescript}}{{^typescript}}async handleReconnection(){{/typescript}} {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      logger.error('Maximum reconnection attempts reached, giving up');
+      return;
+    }
+
+    this.reconnectAttempts++;
+    const backoffDelay = Math.min(5000 * Math.pow(2, this.reconnectAttempts - 1), 60000);
+
+    logger.info(`Attempting database reconnection (${this.reconnectAttempts}/${this.maxReconnectAttempts})`, {
+      backoffDelay
+    });
+
+    await new Promise(resolve => setTimeout(resolve, backoffDelay));
+
+    try {
+      {{^mongodb}}if (this.sequelize) {
+        await this.sequelize.close();
+        await this.initializeSequelize();
+      }{{/mongodb}}
+      
+      {{#mongodb}}if (this.mongoose) {
+        await this.mongoose.disconnect();
+        await this.initializeMongoose();
+      }{{/mongodb}}
+
+      this.reconnectAttempts = 0;
+      logger.info('Database reconnection successful');
+    } catch (error) {
+      logger.error('Database reconnection failed', {
+        attempt: this.reconnectAttempts,
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Setup connection event handlers
+   */
+  {{#typescript}}private setupConnectionEventHandlers(): void{{/typescript}}{{^typescript}}setupConnectionEventHandlers(){{/typescript}} {
+    {{^mongodb}}if (this.sequelize) {
+      // Sequelize connection events
+      this.sequelize.connectionManager.on('connect', () => {
+        logger.info('Database connection established');
+      });
+
+      this.sequelize.connectionManager.on('disconnect', () => {
+        logger.warn('Database connection lost');
+      });
+
+      this.sequelize.connectionManager.on('error', (error) => {
+        logger.error('Database connection error', error);
+      });
+    }{{/mongodb}}
+
+    {{#mongodb}}if (this.mongoose) {
+      // MongoDB connection events
+      this.mongoose.connection.on('connected', () => {
+        logger.info('MongoDB connection established');
+      });
+
+      this.mongoose.connection.on('error', (error) => {
+        logger.error('MongoDB connection error', error);
+      });
+
+      this.mongoose.connection.on('disconnected', () => {
+        logger.warn('MongoDB connection lost');
+      });
+
+      this.mongoose.connection.on('reconnected', () => {
+        logger.info('MongoDB reconnected');
+      });
+    }{{/mongodb}}
+  }
+
+  /**
+   * Get connection statistics
+   */
+  {{#typescript}}getConnectionStats(): ConnectionStats{{/typescript}}{{^typescript}}getConnectionStats(){{/typescript}} {
+    return { ...this.connectionStats };
+  }
+
+  /**
+   * Get database connection instance
+   */
+  {{^mongodb}}{{#typescript}}getSequelize(): Sequelize | null{{/typescript}}{{^typescript}}getSequelize(){{/typescript}} {
+    return this.sequelize;
+  }{{/mongodb}}
+
+  {{#mongodb}}{{#typescript}}getMongoose(): typeof mongoose | null{{/typescript}}{{^typescript}}getMongoose(){{/typescript}} {
+    return this.mongoose;
+  }{{/mongodb}}
+
+  /**
+   * Check if database is ready
+   */
+  {{#typescript}}isReady(): boolean{{/typescript}}{{^typescript}}isReady(){{/typescript}} {
+    return this.connectionStats.isHealthy && !this.isConnecting;
+  }
+
+  /**
+   * Graceful shutdown
+   */
+  {{#typescript}}async shutdown(): Promise<void>{{/typescript}}{{^typescript}}async shutdown(){{/typescript}} {
+    try {
+      if (this.healthCheckInterval) {
+        clearInterval(this.healthCheckInterval);
+        this.healthCheckInterval = null;
+      }
+
+      {{^mongodb}}if (this.sequelize) {
+        await this.sequelize.close();
+        logger.info('Sequelize connection closed');
+      }{{/mongodb}}
+
+      {{#mongodb}}if (this.mongoose) {
+        await this.mongoose.disconnect();
+        logger.info('MongoDB connection closed');
+      }{{/mongodb}}
+
+    } catch (error) {
+      logger.error('Error during database shutdown', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Execute query with connection verification
+   */
+  {{^mongodb}}{{#typescript}}async executeQuery(query: string, options?: any): Promise<any>{{/typescript}}{{^typescript}}async executeQuery(query, options){{/typescript}} {
+    if (!this.isReady()) {
+      throw new Error('Database connection is not ready');
+    }
+
+    try {
+      return await this.sequelize.query(query, options);
+    } catch (error) {
+      logger.error('Query execution failed', {
+        query: query.substring(0, 200),
+        error: error.message
+      });
+      
+      // Trigger health check on query failure
+      await this.performHealthCheck();
+      throw error;
+    }
+  }{{/mongodb}}
+
+  /**
+   * Get detailed connection metrics for monitoring
+   */
+  {{#typescript}}getDetailedMetrics(): object{{/typescript}}{{^typescript}}getDetailedMetrics(){{/typescript}} {
+    return {
+      connectionStats: this.connectionStats,
+      reconnectAttempts: this.reconnectAttempts,
+      isConnecting: this.isConnecting,
+      maxReconnectAttempts: this.maxReconnectAttempts,
+      {{^mongodb}}sequelizeReady: !!this.sequelize,{{/mongodb}}
+      {{#mongodb}}mongooseReady: !!this.mongoose,{{/mongodb}}
+      uptime: Date.now() - this.connectionStats.lastHealthCheck.getTime()
+    };
+  }
+}
+
+// Export singleton instance
+{{#typescript}}export const dbConnectionManager = new DatabaseConnectionManager();{{/typescript}}{{^typescript}}const dbConnectionManager = new DatabaseConnectionManager();
+module.exports = { dbConnectionManager, DatabaseConnectionManager };{{/typescript}}

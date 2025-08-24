@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-fix-app
+  labels:
+    app: test-fix
+    component: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: test-fix
+      component: api
+  template:
+    metadata:
+      labels:
+        app: test-fix
+        component: api
+    spec:
+      containers:
+      - name: test-fix-app
+        image: test-fix:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DB_HOST
+          value: "test-fix-postgres-service"
+        - name: REDIS_HOST
+          value: "test-fix-redis-service"
+        envFrom:
+        - secretRef:
+            name: test-fix-secrets
+        - configMapRef:
+            name: test-fix-config
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: logs
+          mountPath: /usr/src/app/logs
+        - name: uploads
+          mountPath: /usr/src/app/uploads
+      volumes:
+      - name: logs
+        persistentVolumeClaim:
+          claimName: test-fix-logs-pvc
+      - name: uploads
+        persistentVolumeClaim:
+          claimName: test-fix-uploads-pvc
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-fix-service
+  labels:
+    app: test-fix
+    component: api
+spec:
+  selector:
+    app: test-fix
+    component: api
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+  type: LoadBalancer
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-fix-config
+data:
+  API_VERSION: "v1"
+  LOG_LEVEL: "info"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-fix-logs-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-fix-uploads-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

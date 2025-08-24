@@ -21,6 +21,11 @@ export async function generateProject(options: GeneratorOptions): Promise<void> 
     kebabCase: config.name.toLowerCase().replace(/\s+/g, '-'),
     camelCase: config.name.replace(/[-\s]+(.)?/g, (_, c) => (c ? c.toUpperCase() : '')),
     pascalCase: config.name.replace(/[-\s]+(.)?/g, (_, c) => (c ? c.toUpperCase() : '')).replace(/^./, c => c.toUpperCase()),
+    // Database-specific boolean flags for templates
+    postgresql: config.database === 'postgresql',
+    mysql: config.database === 'mysql',
+    sqlite: config.database === 'sqlite',
+    mongodb: config.database === 'mongodb',
   };
   
   const templatesDir = path.join(__dirname, '../../templates');

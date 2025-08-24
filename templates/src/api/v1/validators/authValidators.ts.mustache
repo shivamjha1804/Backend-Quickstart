@@ -1,12 +1,26 @@
-{{#authentication}}{{#typescript}}import { Request, Response, NextFunction } from 'express';{{/typescript}}{{^typescript}}const { Request, Response, NextFunction } = require('express');{{/typescript}}
-{{#typescript}}import Joi from 'joi';{{/typescript}}{{^typescript}}const Joi = require('joi');{{/typescript}}
+{{#authentication}}
+{{#typescript}}
+import { Request, Response, NextFunction } from 'express';
+import Joi from 'joi';
+{{/typescript}}
+
+{{^typescript}}
+const { Request, Response, NextFunction } = require('express');
+const Joi = require('joi');
+{{/typescript}}
 
 /**
  * Validation middleware factory
  */
-{{#typescript}}const validateRequest = (schema: Joi.ObjectSchema) => {
-  return (req: Request, res: Response, next: NextFunction): void => {{{/typescript}}{{^typescript}}const validateRequest = (schema) => {
-  return (req, res, next) => {{{/typescript}}
+{{#typescript}}
+const validateRequest = (schema: Joi.ObjectSchema) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+{{/typescript}}
+
+{{^typescript}}
+const validateRequest = (schema) => {
+  return (req, res, next) => {
+{{/typescript}}
     const { error } = schema.validate(req.body, {
       abortEarly: false,
       allowUnknown: false,
@@ -189,15 +203,18 @@ const changePasswordSchema = Joi.object({
 });
 
 // Export validation middlewares
-{{#typescript}}export const validateRegistration = validateRequest(registrationSchema);
+{{#typescript}}
+export const validateRegistration = validateRequest(registrationSchema);
 export const validateLogin = validateRequest(loginSchema);
 export const validateForgotPassword = validateRequest(forgotPasswordSchema);
 export const validateResetPassword = validateRequest(resetPasswordSchema);
 export const validateEmailVerification = validateRequest(emailVerificationSchema);
 export const validateRefreshToken = validateRequest(refreshTokenSchema);
-export const validateChangePassword = validateRequest(changePasswordSchema);{{/typescript}}
+export const validateChangePassword = validateRequest(changePasswordSchema);
+{{/typescript}}
 
-{{^typescript}}module.exports = {
+{{^typescript}}
+module.exports = {
   validateRegistration: validateRequest(registrationSchema),
   validateLogin: validateRequest(loginSchema),
   validateForgotPassword: validateRequest(forgotPasswordSchema),
@@ -205,4 +222,6 @@ export const validateChangePassword = validateRequest(changePasswordSchema);{{/t
   validateEmailVerification: validateRequest(emailVerificationSchema),
   validateRefreshToken: validateRequest(refreshTokenSchema),
   validateChangePassword: validateRequest(changePasswordSchema)
-};{{/typescript}}{{/authentication}}
+};
+{{/typescript}}
+{{/authentication}}

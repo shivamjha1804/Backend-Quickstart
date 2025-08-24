@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-middleware-app
+  labels:
+    app: test-middleware
+    component: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: test-middleware
+      component: api
+  template:
+    metadata:
+      labels:
+        app: test-middleware
+        component: api
+    spec:
+      containers:
+      - name: test-middleware-app
+        image: test-middleware:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DB_HOST
+          value: "test-middleware-postgres-service"
+        - name: REDIS_HOST
+          value: "test-middleware-redis-service"
+        envFrom:
+        - secretRef:
+            name: test-middleware-secrets
+        - configMapRef:
+            name: test-middleware-config
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: logs
+          mountPath: /usr/src/app/logs
+        - name: uploads
+          mountPath: /usr/src/app/uploads
+      volumes:
+      - name: logs
+        persistentVolumeClaim:
+          claimName: test-middleware-logs-pvc
+      - name: uploads
+        persistentVolumeClaim:
+          claimName: test-middleware-uploads-pvc
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-middleware-service
+  labels:
+    app: test-middleware
+    component: api
+spec:
+  selector:
+    app: test-middleware
+    component: api
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+  type: LoadBalancer
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-middleware-config
+data:
+  API_VERSION: "v1"
+  LOG_LEVEL: "info"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-middleware-logs-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-middleware-uploads-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

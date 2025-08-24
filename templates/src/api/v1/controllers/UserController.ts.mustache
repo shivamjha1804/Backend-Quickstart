@@ -1,20 +1,48 @@
-{{#typescript}}import { Request, Response, NextFunction } from 'express';{{/typescript}}{{^typescript}}const { Request, Response, NextFunction } = require('express');{{/typescript}}
-{{#typescript}}import { logger } from '../../../core/utils/logger';{{/typescript}}{{^typescript}}const { logger } = require('../../../core/utils/logger');{{/typescript}}
+{{#typescript}}
+import { Request, Response, NextFunction } from 'express';
+import { logger } from '../../../core/utils/logger';
+{{/typescript}}
 
-{{^mongodb}}{{#typescript}}import { User } from '../../../core/database/models/User';
-import { Op } from 'sequelize';{{/typescript}}{{^typescript}}const { User } = require('../../../core/database/models/User');
-const { Op } = require('sequelize');{{/typescript}}{{/mongodb}}
-{{#mongodb}}{{#typescript}}import User from '../../../core/database/models/UserMongo';{{/typescript}}{{^typescript}}const User = require('../../../core/database/models/UserMongo');{{/typescript}}{{/mongodb}}
+{{^typescript}}
+const { Request, Response, NextFunction } = require('express');
+const { logger } = require('../../../core/utils/logger');
+{{/typescript}}
+
+{{#typescript}}
+{{^mongodb}}
+import { User } from '../../../core/database/models/User';
+import { Op } from 'sequelize';
+{{/mongodb}}
+{{#mongodb}}
+import User from '../../../core/database/models/UserMongo';
+{{/mongodb}}
+{{/typescript}}
+
+{{^typescript}}
+{{^mongodb}}
+const { User } = require('../../../core/database/models/User');
+const { Op } = require('sequelize');
+{{/mongodb}}
+{{#mongodb}}
+const User = require('../../../core/database/models/UserMongo');
+{{/mongodb}}
+{{/typescript}}
 
 {{#typescript}}interface AuthenticatedRequest extends Request {
   user?: any;
 }{{/typescript}}
 
-{{#typescript}}export class UserController {{{/typescript}}{{^typescript}}class UserController {{{/typescript}}
+{{#typescript}}
+export class UserController {
+{{/typescript}}
+
+{{^typescript}}
+class UserController {
+{{/typescript}}
   /**
    * Get current user profile
    */
-  {{#typescript}}async getProfile(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async getProfile(req, res, next) {{{/typescript}}
+  {{#typescript}}async getProfile(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void>{{/typescript}}{{^typescript}}async getProfile(req, res, next){{/typescript}} {
     try {
       const user = this.sanitizeUser(req.user);
 
@@ -32,7 +60,7 @@ const { Op } = require('sequelize');{{/typescript}}{{/mongodb}}
   /**
    * Update current user profile
    */
-  {{#typescript}}async updateProfile(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async updateProfile(req, res, next) {{{/typescript}}
+  {{#typescript}}async updateProfile(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void>{{/typescript}}{{^typescript}}async updateProfile(req, res, next){{/typescript}} {
     try {
       const { firstName, lastName, email } = req.body;
       const userId = req.user.id;
@@ -51,13 +79,14 @@ const { Op } = require('sequelize');{{/typescript}}{{/mongodb}}
         });{{/mongodb}}
 
         if (existingUser) {
-          return res.status(400).json({
+          res.status(400).json({
             success: false,
             error: {
               message: 'Email is already in use',
               statusCode: 400
             }
           });
+          return;
         }
       }
 
@@ -94,7 +123,7 @@ const { Op } = require('sequelize');{{/typescript}}{{/mongodb}}
   /**
    * Get all users (Admin only)
    */
-  {{#typescript}}async getAllUsers(req: Request, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async getAllUsers(req, res, next) {{{/typescript}}
+  {{#typescript}}async getAllUsers(req: Request, res: Response, next: NextFunction): Promise<void>{{/typescript}}{{^typescript}}async getAllUsers(req, res, next){{/typescript}} {
     try {
       const page = parseInt(req.query.page{{#typescript}} as string{{/typescript}}) || 1;
       const limit = parseInt(req.query.limit{{#typescript}} as string{{/typescript}}) || 10;
@@ -162,7 +191,7 @@ const { Op } = require('sequelize');{{/typescript}}{{/mongodb}}
   /**
    * Get user by ID (Admin only)
    */
-  {{#typescript}}async getUserById(req: Request, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async getUserById(req, res, next) {{{/typescript}}
+  {{#typescript}}async getUserById(req: Request, res: Response, next: NextFunction): Promise<void>{{/typescript}}{{^typescript}}async getUserById(req, res, next){{/typescript}} {
     try {
       const { id } = req.params;
 
@@ -172,13 +201,14 @@ const { Op } = require('sequelize');{{/typescript}}{{/mongodb}}
       {{#mongodb}}const user = await User.findById(id);{{/mongodb}}
 
       if (!user) {
-        return res.status(404).json({
+        res.status(404).json({
           success: false,
           error: {
             message: 'User not found',
             statusCode: 404
           }
         });
+        return;
       }
 
       res.status(200).json({
@@ -195,7 +225,7 @@ const { Op } = require('sequelize');{{/typescript}}{{/mongodb}}
   /**
    * Update user by ID (Admin only)
    */
-  {{#typescript}}async updateUser(req: Request, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async updateUser(req, res, next) {{{/typescript}}
+  {{#typescript}}async updateUser(req: Request, res: Response, next: NextFunction): Promise<void>{{/typescript}}{{^typescript}}async updateUser(req, res, next){{/typescript}} {
     try {
       const { id } = req.params;
       const { firstName, lastName, email, isActive, role } = req.body;
@@ -204,13 +234,14 @@ const { Op } = require('sequelize');{{/typescript}}{{/mongodb}}
       {{#mongodb}}const user = await User.findById(id);{{/mongodb}}
 
       if (!user) {
-        return res.status(404).json({
+        res.status(404).json({
           success: false,
           error: {
             message: 'User not found',
             statusCode: 404
           }
         });
+        return;
       }
 
       // Check if email is being changed and if it's already taken
@@ -227,13 +258,14 @@ const { Op } = require('sequelize');{{/typescript}}{{/mongodb}}
         });{{/mongodb}}
 
         if (existingUser) {
-          return res.status(400).json({
+          res.status(400).json({
             success: false,
             error: {
               message: 'Email is already in use',
               statusCode: 400
             }
           });
+          return;
         }
       }
 
@@ -265,7 +297,7 @@ const { Op } = require('sequelize');{{/typescript}}{{/mongodb}}
   /**
    * Delete user by ID (Admin only)
    */
-  {{#typescript}}async deleteUser(req: Request, res: Response, next: NextFunction): Promise<void> {{{/typescript}}{{^typescript}}async deleteUser(req, res, next) {{{/typescript}}
+  {{#typescript}}async deleteUser(req: Request, res: Response, next: NextFunction): Promise<void>{{/typescript}}{{^typescript}}async deleteUser(req, res, next){{/typescript}} {
     try {
       const { id } = req.params;
 
@@ -273,13 +305,14 @@ const { Op } = require('sequelize');{{/typescript}}{{/mongodb}}
       {{#mongodb}}const user = await User.findById(id);{{/mongodb}}
 
       if (!user) {
-        return res.status(404).json({
+        res.status(404).json({
           success: false,
           error: {
             message: 'User not found',
             statusCode: 404
           }
         });
+        return;
       }
 
       {{^mongodb}}await user.destroy();{{/mongodb}}
@@ -301,7 +334,7 @@ const { Op } = require('sequelize');{{/typescript}}{{/mongodb}}
   /**
    * Remove sensitive fields from user object
    */
-  {{#typescript}}private sanitizeUser(user: any): any {{{/typescript}}{{^typescript}}sanitizeUser(user) {{{/typescript}}
+  {{#typescript}}private sanitizeUser(user: any): any{{/typescript}}{{^typescript}}sanitizeUser(user){{/typescript}} {
     if (!user) return null;
     
     const userObj = user.toJSON ? user.toJSON() : user;
@@ -313,4 +346,6 @@ const { Op } = require('sequelize');{{/typescript}}{{/mongodb}}
   }
 }
 
-{{^typescript}}module.exports = { UserController };{{/typescript}}
+{{^typescript}}
+module.exports = { UserController };
+{{/typescript}}

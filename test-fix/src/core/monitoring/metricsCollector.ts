@@ -1,0 +1,380 @@
+import { Request, Response, NextFunction } from 'express';
+import { createPrometheusMetrics } from 'prometheus-api-metrics';
+import { register, collectDefaultMetrics, Counter, Histogram, Gauge } from 'prom-client';
+import { config } from '../../config';
+import { logger } from '../utils/logger';
+
+
+/**
+ * Enterprise-grade metrics collection and monitoring system
+ * Provides comprehensive application metrics, performance tracking,
+ * and integration with monitoring platforms like Prometheus, DataDog, etc.
+ */
+
+interface MetricLabels {
+  [key: string]: string;
+}
+
+interface RequestMetrics {
+  duration: number;
+  statusCode: number;
+  method: string;
+  route: string;
+  userAgent?: string;
+  userId?: string;
+}
+
+interface BusinessMetrics {
+  userRegistrations: number;
+  userLogins: number;
+  apiCalls: number;
+  errors: number;
+  dbQueries: number;
+}
+
+export class MetricsCollector {
+
+  private httpRequestDuration: Histogram<string>;
+  private httpRequestsTotal: Counter<string>;
+  private httpRequestSize: Histogram<string>;
+  private httpResponseSize: Histogram<string>;
+  private activeConnections: Gauge<string>;
+  private databaseConnections: Gauge<string>;
+  private databaseQueryDuration: Histogram<string>;
+  private businessMetrics: Counter<string>;
+  private errorRate: Counter<string>;
+  private memoryUsage: Gauge<string>;
+  private cpuUsage: Gauge<string>;
+  private authenticationAttempts: Counter<string>;
+  private rateLimitHits: Counter<string>;
+
+  constructor() {
+    // Initialize default metrics collection
+    collectDefaultMetrics({
+      register,
+      prefix: 'test-fix_',
+      gcDurationBuckets: [0.001, 0.01, 0.1, 1, 2, 5]
+    });
+
+    this.initializeCustomMetrics();
+    this.startSystemMetricsCollection();
+    
+    logger.info('Metrics collector initialized');
+  }
+
+  /**
+   * Initialize custom application metrics
+   */
+  private initializeCustomMetrics(): void {
+    // HTTP Request Duration Histogram
+    this.httpRequestDuration = new Histogram({
+      name: 'test-fix_http_request_duration_seconds',
+      help: 'Duration of HTTP requests in seconds',
+      labelNames: ['method', 'route', 'status_code'],
+      buckets: [0.1, 0.5, 1, 2, 5, 10, 30]
+    });
+
+    // HTTP Requests Total Counter
+    this.httpRequestsTotal = new Counter({
+      name: 'test-fix_http_requests_total',
+      help: 'Total number of HTTP requests',
+      labelNames: ['method', 'route', 'status_code']
+    });
+
+    // HTTP Request Size Histogram
+    this.httpRequestSize = new Histogram({
+      name: 'test-fix_http_request_size_bytes',
+      help: 'Size of HTTP requests in bytes',
+      labelNames: ['method', 'route'],
+      buckets: [100, 1000, 10000, 100000, 1000000]
+    });
+
+    // HTTP Response Size Histogram
+    this.httpResponseSize = new Histogram({
+      name: 'test-fix_http_response_size_bytes',
+      help: 'Size of HTTP responses in bytes',
+      labelNames: ['method', 'route'],
+      buckets: [100, 1000, 10000, 100000, 1000000]
+    });
+
+    // Active Connections Gauge
+    this.activeConnections = new Gauge({
+      name: 'test-fix_active_connections',
+      help: 'Number of active connections'
+    });
+
+    // Database Connections Gauge
+    this.databaseConnections = new Gauge({
+      name: 'test-fix_database_connections',
+      help: 'Number of database connections',
+      labelNames: ['state'] // active, idle, waiting
+    });
+
+    // Database Query Duration
+    this.databaseQueryDuration = new Histogram({
+      name: 'test-fix_database_query_duration_seconds',
+      help: 'Duration of database queries in seconds',
+      labelNames: ['operation', 'table'],
+      buckets: [0.01, 0.05, 0.1, 0.5, 1, 5, 10]
+    });
+
+    // Business Metrics Counter
+    this.businessMetrics = new Counter({
+      name: 'test-fix_business_events_total',
+      help: 'Total number of business events',
+      labelNames: ['event_type', 'status']
+    });
+
+    // Error Rate Counter
+    this.errorRate = new Counter({
+      name: 'test-fix_errors_total',
+      help: 'Total number of errors',
+      labelNames: ['type', 'severity']
+    });
+
+    // Memory Usage Gauge
+    this.memoryUsage = new Gauge({
+      name: 'test-fix_memory_usage_bytes',
+      help: 'Memory usage in bytes',
+      labelNames: ['type'] // heap, external, rss
+    });
+
+    // CPU Usage Gauge
+    this.cpuUsage = new Gauge({
+      name: 'test-fix_cpu_usage_percent',
+      help: 'CPU usage percentage'
+    });
+
+    // Authentication Attempts
+    this.authenticationAttempts = new Counter({
+      name: 'test-fix_auth_attempts_total',
+      help: 'Total authentication attempts',
+      labelNames: ['type', 'result'] // login/register, success/failure
+    });
+
+    // Rate Limit Hits
+    this.rateLimitHits = new Counter({
+      name: 'test-fix_rate_limit_hits_total',
+      help: 'Total rate limit hits',
+      labelNames: ['endpoint', 'identifier_type']
+    });
+
+    // Register all metrics
+    register.registerMetric(this.httpRequestDuration);
+    register.registerMetric(this.httpRequestsTotal);
+    register.registerMetric(this.httpRequestSize);
+    register.registerMetric(this.httpResponseSize);
+    register.registerMetric(this.activeConnections);
+    register.registerMetric(this.databaseConnections);
+    register.registerMetric(this.databaseQueryDuration);
+    register.registerMetric(this.businessMetrics);
+    register.registerMetric(this.errorRate);
+    register.registerMetric(this.memoryUsage);
+    register.registerMetric(this.cpuUsage);
+    register.registerMetric(this.authenticationAttempts);
+    register.registerMetric(this.rateLimitHits);
+  }
+
+  /**
+   * Middleware to collect HTTP metrics
+   */
+  collectHttpMetrics() {
+    return (req: Request, res: Response, next: NextFunction): void => {
+      const startTime = Date.now();
+      const requestSize = parseInt(req.get('content-length') || '0');
+
+      // Track request size
+      this.httpRequestSize.observe(
+        { method: req.method, route: req.route?.path || req.path },
+        requestSize
+      );
+
+      // Increment active connections
+      this.activeConnections.inc();
+
+      // Override res.end to capture metrics
+      const originalEnd = res.end;
+      res.end = function(this: Response, ...args: any[]): any {
+        // Calculate duration
+        const duration = (Date.now() - startTime) / 1000;
+        const route = req.route?.path || req.path;
+        const labels = {
+          method: req.method,
+          route,
+          status_code: res.statusCode.toString()
+        };
+
+        // Record metrics
+        metricsCollector.httpRequestDuration.observe(labels, duration);
+        metricsCollector.httpRequestsTotal.inc(labels);
+
+        // Track response size
+        const responseSize = parseInt(res.get('content-length') || '0');
+        metricsCollector.httpResponseSize.observe(
+          { method: req.method, route },
+          responseSize
+        );
+
+        // Decrement active connections
+        metricsCollector.activeConnections.dec();
+
+        // Call original end function
+        return originalEnd.apply(this, args);
+      };
+
+      next();
+    };
+  }
+
+  /**
+   * Track database metrics
+   */
+  recordDatabaseQuery(operation: string, table: string, duration: number): void {
+    this.databaseQueryDuration.observe(
+      { operation, table },
+      duration / 1000 // Convert to seconds
+    );
+  }
+
+  /**
+   * Update database connection metrics
+   */
+  updateDatabaseConnections(active: number, idle: number, waiting: number): void {
+    this.databaseConnections.set({ state: 'active' }, active);
+    this.databaseConnections.set({ state: 'idle' }, idle);
+    this.databaseConnections.set({ state: 'waiting' }, waiting);
+  }
+
+  /**
+   * Record business events
+   */
+  recordBusinessEvent(eventType: string, status: 'success' | 'failure' = 'success'): void {
+    this.businessMetrics.inc({ event_type: eventType, status });
+  }
+
+  /**
+   * Record authentication attempts
+   */
+  recordAuthAttempt(type: 'login' | 'register', result: 'success' | 'failure'): void {
+    this.authenticationAttempts.inc({ type, result });
+  }
+
+  /**
+   * Record rate limit hits
+   */
+  recordRateLimitHit(endpoint: string, identifierType: 'ip' | 'user' | 'fingerprint'): void {
+    this.rateLimitHits.inc({ endpoint, identifier_type: identifierType });
+  }
+
+  /**
+   * Record errors
+   */
+  recordError(type: string, severity: 'low' | 'medium' | 'high' | 'critical'): void {
+    this.errorRate.inc({ type, severity });
+  }
+
+  /**
+   * Start collecting system metrics
+   */
+  private startSystemMetricsCollection(): void {
+    // Collect system metrics every 30 seconds
+    setInterval(() => {
+      this.collectSystemMetrics();
+    }, 30000);
+  }
+
+  /**
+   * Collect system resource metrics
+   */
+  private collectSystemMetrics(): void {
+    try {
+      const memUsage = process.memoryUsage();
+      
+      // Memory metrics
+      this.memoryUsage.set({ type: 'heap_used' }, memUsage.heapUsed);
+      this.memoryUsage.set({ type: 'heap_total' }, memUsage.heapTotal);
+      this.memoryUsage.set({ type: 'external' }, memUsage.external);
+      this.memoryUsage.set({ type: 'rss' }, memUsage.rss);
+
+      // CPU metrics
+      const cpuUsage = process.cpuUsage();
+      const totalCpuTime = cpuUsage.user + cpuUsage.system;
+      this.cpuUsage.set(totalCpuTime / 1000000); // Convert to seconds
+      
+    } catch (error) {
+      logger.error('Error collecting system metrics', error);
+    }
+  }
+
+  /**
+   * Get metrics for Prometheus endpoint
+   */
+  async getMetrics(): Promise<string> {
+    return register.metrics();
+  }
+
+  /**
+   * Get metrics summary for health checks
+   */
+  getMetricsSummary(): object {
+    const memUsage = process.memoryUsage();
+    return {
+      timestamp: new Date().toISOString(),
+      memory: {
+        heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024), // MB
+        heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024), // MB
+        external: Math.round(memUsage.external / 1024 / 1024), // MB
+        rss: Math.round(memUsage.rss / 1024 / 1024) // MB
+      },
+      uptime: Math.round(process.uptime()),
+      version: process.version,
+      platform: process.platform,
+      arch: process.arch
+    };
+  }
+
+  /**
+   * Clear all metrics (for testing)
+   */
+  clear(): void {
+    register.clear();
+  }
+
+  /**
+   * Custom metric creation for specific use cases
+   */
+  createCustomCounter(name: string, help: string, labelNames: string[] = []): Counter<string> {
+    const counter = new Counter({
+      name: `test-fix_${name}`,
+      help,
+      labelNames
+    });
+    register.registerMetric(counter);
+    return counter;
+  }
+
+  createCustomGauge(name: string, help: string, labelNames: string[] = []): Gauge<string> {
+    const gauge = new Gauge({
+      name: `test-fix_${name}`,
+      help,
+      labelNames
+    });
+    register.registerMetric(gauge);
+    return gauge;
+  }
+
+  createCustomHistogram(name: string, help: string, labelNames: string[] = [], buckets: number[] = []): Histogram<string> {
+    const histogram = new Histogram({
+      name: `test-fix_${name}`,
+      help,
+      labelNames,
+      buckets: buckets.length > 0 ? buckets : [0.1, 0.5, 1, 2, 5, 10]
+    });
+    register.registerMetric(histogram);
+    return histogram;
+  }
+}
+
+// Export singleton instance
+export const metricsCollector = new MetricsCollector();
+
